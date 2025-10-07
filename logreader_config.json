@@ -7,43 +7,57 @@
       "name": "DEBUG",
       "color": "#00FFFF",
       "enabled": true,
-      "order": 0
+      "order": 0,
+      "message_color": "#FFFFFF",
+      "message_match_tag": false
     },
     {
       "name": "INFO",
       "color": "#00FF00",
       "enabled": true,
-      "order": 1
+      "order": 1,
+      "message_color": "#FFFFFF",
+      "message_match_tag": false
     },
     {
       "name": "WARN",
       "color": "#FFFF00",
       "enabled": true,
-      "order": 2
+      "order": 2,
+      "message_color": "#FFFFFF",
+      "message_match_tag": false
     },
     {
       "name": "ERROR",
       "color": "#FF0000",
       "enabled": true,
-      "order": 3
+      "order": 3,
+      "message_color": "#FFFFFF",
+      "message_match_tag": false
     },
     {
       "name": "HEADER",
       "color": "#aa55ff",
       "enabled": true,
-      "order": 4
+      "order": 4,
+      "message_color": "#FFFFFF",
+      "message_match_tag": true
     },
     {
       "name": "FOOTER",
       "color": "#ff5500",
       "enabled": true,
-      "order": 5
+      "order": 5,
+      "message_color": "#FFFFFF",
+      "message_match_tag": true
     },
     {
       "name": "NOTICE",
       "color": "#808080",
       "enabled": true,
-      "order": 6
+      "order": 6,
+      "message_color": "#FFFFFF",
+      "message_match_tag": false
     }
   ],
   "window": {

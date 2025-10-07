@@ -22,9 +22,11 @@ logger = logging.getLogger(__name__)
 class LogTag:
     """Represents a log level tag with customizable color."""
     name: str              # Tag name (e.g., "DEBUG", "INFO")
-    color: str             # Hex color (e.g., "#00FFFF")
+    color: str             # Hex color for tag text (e.g., "#00FFFF")
     enabled: bool = True   # Whether tag appears in filters
     order: int = 0         # Display order in UI
+    message_color: str = "#FFFFFF"  # Hex color for message text (default white)
+    message_match_tag: bool = False  # If True, message uses tag color
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -32,7 +34,9 @@ class LogTag:
             "name": self.name,
             "color": self.color,
             "enabled": self.enabled,
-            "order": self.order
+            "order": self.order,
+            "message_color": self.message_color,
+            "message_match_tag": self.message_match_tag
         }
 
     @classmethod
@@ -42,7 +46,9 @@ class LogTag:
             name=data["name"],
             color=data["color"],
             enabled=data.get("enabled", True),
-            order=data.get("order", 0)
+            order=data.get("order", 0),
+            message_color=data.get("message_color", "#FFFFFF"),
+            message_match_tag=data.get("message_match_tag", False)
         )
 
 
@@ -69,12 +75,12 @@ class AppConfig:
     def _default_tags() -> List[LogTag]:
         """Return default log tags matching v1.0 behavior."""
         return [
-            LogTag("DEBUG", "#00FFFF", True, 0),   # Cyan
-            LogTag("INFO", "#00FF00", True, 1),    # Green
-            LogTag("WARN", "#FFFF00", True, 2),    # Yellow
-            LogTag("ERROR", "#FF0000", True, 3),   # Red
-            LogTag("HEADER", "#0000FF", True, 4),  # Blue
-            LogTag("FOOTER", "#0000FF", True, 5),  # Blue
+            LogTag("DEBUG", "#00FFFF", True, 0, "#FFFFFF", False),   # Cyan tag, white message
+            LogTag("INFO", "#00FF00", True, 1, "#FFFFFF", False),    # Green tag, white message
+            LogTag("WARN", "#FFFF00", True, 2, "#FFFFFF", False),    # Yellow tag, white message
+            LogTag("ERROR", "#FF0000", True, 3, "#FFFFFF", False),   # Red tag, white message
+            LogTag("HEADER", "#0000FF", True, 4, "#FFFFFF", False),  # Blue tag, white message
+            LogTag("FOOTER", "#0000FF", True, 5, "#FFFFFF", False),  # Blue tag, white message
         ]
 
     def to_json(self) -> Dict[str, Any]:
@@ -401,9 +407,11 @@ class ConfigManager:
         # Create new tag with default gray color
         new_tag = LogTag(
             name=tag_name.upper(),
-            color="#808080",  # Gray
+            color="#808080",  # Gray tag
             enabled=True,
-            order=len(config.tags)  # Append at end
+            order=len(config.tags),  # Append at end
+            message_color="#FFFFFF",  # White message
+            message_match_tag=False
         )
 
         config.tags.append(new_tag)

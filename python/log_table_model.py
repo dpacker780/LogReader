@@ -177,10 +177,20 @@ class LogTableModel(QAbstractTableModel):
                 # Dimmed gray for line numbers
                 return QBrush(QColor(128, 128, 128))
             elif col == self.COL_LEVEL:
-                # Get color from config (dynamic tags)
+                # Get tag color from config (dynamic tags)
                 hex_color = ConfigManager.get_tag_color(entry.level.value, "#FFFFFF")
                 color = QColor(hex_color)
                 return QBrush(color)
+            elif col == self.COL_MESSAGE:
+                # Get message color from tag config
+                tag = ConfigManager.get_or_create_tag(entry.level.value)
+                if tag.message_match_tag:
+                    # Use tag color for message
+                    msg_color = tag.color
+                else:
+                    # Use custom message color
+                    msg_color = tag.message_color
+                return QBrush(QColor(msg_color))
 
         # TextAlignmentRole: Right-align line numbers, center-align level
         elif role == Qt.ItemDataRole.TextAlignmentRole:

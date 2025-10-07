@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QLineEdit, QPushButton, QLabel, QTableView,
     QCheckBox, QFrame, QSizePolicy, QHeaderView, QMessageBox, QFileDialog, QApplication, QDialog
 )
+# QFrame already imported above
 from PyQt6.QtCore import Qt, QSize, QObject, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QKeySequence, QShortcut, QAction
 
@@ -180,6 +181,9 @@ class MainWindow(QMainWindow):
             table_font = QFont("Courier New", 9)
         self._log_table.setFont(table_font)
 
+        # Connect double-click to clear filters and show context
+        self._log_table.doubleClicked.connect(self._on_table_double_click)
+
         layout.addWidget(self._log_table)
 
         return frame
@@ -328,29 +332,52 @@ class MainWindow(QMainWindow):
     def _setup_statusbar(self):
         """Create and setup the status bar."""
         statusbar = self.statusBar()
-        statusbar.setStyleSheet("QStatusBar::item { border: none; }")
+
+        # Qt best practice: Use margins for breathing room, separators for visual clarity
+        statusbar.setStyleSheet("""
+            QStatusBar {
+                border-top: 1px solid palette(mid);
+            }
+            QStatusBar::item {
+                border: none;
+            }
+        """)
+        statusbar.setContentsMargins(5, 2, 5, 2)
 
         # Left side: Status message (stretches to fill available space)
         self._status_message = QLabel("Ready")
         self._status_message.setMinimumWidth(150)
+        self._status_message.setContentsMargins(5, 0, 10, 0)
         statusbar.addWidget(self._status_message, 1)  # stretch=1
 
+        # Separator frame
+        separator1 = QFrame()
+        separator1.setFrameShape(QFrame.Shape.VLine)
+        separator1.setFrameShadow(QFrame.Shadow.Sunken)
+        statusbar.addPermanentWidget(separator1)
+
         # Center-left: Active file (permanent widget)
-        self._status_file = QLabel("No file loaded")
-        self._status_file.setMinimumWidth(200)
-        self._status_file.setStyleSheet("QLabel { margin-left: 10px; margin-right: 10px; }")
+        self._status_file = QLabel("File: No file loaded")
+        self._status_file.setMinimumWidth(220)
+        self._status_file.setContentsMargins(10, 0, 10, 0)
         statusbar.addPermanentWidget(self._status_file)
 
+        # Separator frame
+        separator2 = QFrame()
+        separator2.setFrameShape(QFrame.Shape.VLine)
+        separator2.setFrameShadow(QFrame.Shadow.Sunken)
+        statusbar.addPermanentWidget(separator2)
+
         # Center-right: Entry count (permanent widget)
-        self._status_entries = QLabel("0 entries")
+        self._status_entries = QLabel("Entries: 0")
         self._status_entries.setMinimumWidth(150)
-        self._status_entries.setStyleSheet("QLabel { margin-left: 10px; margin-right: 10px; }")
+        self._status_entries.setContentsMargins(10, 0, 10, 0)
         statusbar.addPermanentWidget(self._status_entries)
 
         # Right: Line info (permanent widget, initially hidden)
         self._status_line = QLabel("")
         self._status_line.setMinimumWidth(100)
-        self._status_line.setStyleSheet("QLabel { margin-left: 10px; }")
+        self._status_line.setContentsMargins(10, 0, 5, 0)
         statusbar.addPermanentWidget(self._status_line)
 
     def _setup_menubar(self):
@@ -392,10 +419,10 @@ class MainWindow(QMainWindow):
         tag_editor_action.triggered.connect(self._show_tag_editor)
         help_menu.addAction(tag_editor_action)
 
-        # Help -> Keyboard Shortcuts
-        shortcuts_action = QAction("&Keyboard Shortcuts", self)
-        shortcuts_action.setStatusTip("Show keyboard shortcuts")
-        shortcuts_action.triggered.connect(self._show_keyboard_shortcuts_help)
+        # Help -> Shortcuts
+        shortcuts_action = QAction("&Shortcuts", self)
+        shortcuts_action.setStatusTip("Show keyboard and mouse shortcuts")
+        shortcuts_action.triggered.connect(self._show_shortcuts_help)
         help_menu.addAction(shortcuts_action)
 
         help_menu.addSeparator()
@@ -571,6 +598,44 @@ class MainWindow(QMainWindow):
         # Clear the jump input
         self._jump_input.clear()
 
+    def _on_table_double_click(self, index):
+        """
+        Handle double-click on log table.
+
+        Clears all filters and search, then navigates to the line number
+        of the double-clicked entry to show surrounding context.
+
+        Args:
+            index: QModelIndex of the clicked cell
+        """
+        if not index.isValid():
+            return
+
+        # Get the entry for this row
+        row = index.row()
+        entry = self._log_model.get_entry(row)
+        if entry is None:
+            return
+
+        line_number = entry.line_number
+
+        # Clear all filters and search
+        self._clear_all_filters()
+
+        # Find the entry with this line number in the now-unfiltered list
+        # and scroll to it
+        with self._entries_lock:
+            for i, e in enumerate(self._log_entries):
+                if e.line_number == line_number:
+                    # Select and scroll to this row
+                    self._log_table.selectRow(i)
+                    model_index = self._log_model.index(i, 0)
+                    self._log_table.scrollTo(model_index, QTableView.ScrollHint.PositionAtCenter)
+
+                    self._update_status(f"Cleared filters, showing context for line {line_number}")
+                    print(f"[DOUBLE-CLICK] Cleared filters, jumped to line {line_number}")
+                    break
+
     def _clear_all_filters(self):
         """Clear all filters and search to show all entries."""
         # Uncheck all filter checkboxes
@@ -602,9 +667,9 @@ class MainWindow(QMainWindow):
             total: Total number of entries
         """
         if shown == total:
-            self._status_entries.setText(f"{total:,} entries")
+            self._status_entries.setText(f"Entries: {total:,}")
         else:
-            self._status_entries.setText(f"{total:,} entries ({shown:,} visible)")
+            self._status_entries.setText(f"Entries: {total:,} ({shown:,} visible)")
 
     def _update_file_status(self, file_path: str):
         """
@@ -618,7 +683,7 @@ class MainWindow(QMainWindow):
             filename = Path(file_path).name
             self._status_file.setText(f"File: {filename}")
         else:
-            self._status_file.setText("No file loaded")
+            self._status_file.setText("File: No file loaded")
 
     def _parser_callback(self, status: str, entries: List[LogEntry]):
         """
@@ -683,10 +748,10 @@ class MainWindow(QMainWindow):
                 "3. Consider reloading the current file (Ctrl+R)"
             )
 
-    def _show_keyboard_shortcuts_help(self):
-        """Show Keyboard Shortcuts help dialog."""
+    def _show_shortcuts_help(self):
+        """Show Shortcuts help dialog."""
         msg = QMessageBox(self)
-        msg.setWindowTitle("Keyboard Shortcuts")
+        msg.setWindowTitle("Shortcuts")
         msg.setTextFormat(Qt.TextFormat.RichText)
 
         help_text = """
@@ -700,14 +765,15 @@ class MainWindow(QMainWindow):
         <tr><td><b>Ctrl+Q</b></td><td>Quit application</td></tr>
         </table>
 
-        <h3>Mouse Selection</h3>
+        <h3>Mouse Actions</h3>
         <table cellpadding="5">
         <tr><td><b>Click</b></td><td>Select single row</td></tr>
         <tr><td><b>Ctrl+Click</b></td><td>Add/remove row from selection</td></tr>
         <tr><td><b>Shift+Click</b></td><td>Select range of rows</td></tr>
+        <tr><td><b>Double-Click</b></td><td>Clear filters/search and show context around clicked line</td></tr>
         </table>
 
-        <p><i>Selected rows can be copied with Ctrl+C</i></p>
+        <p><i>Tip: Use filters and search to find a specific log entry, then double-click to see surrounding context!</i></p>
         """
 
         msg.setText(help_text)

@@ -45,7 +45,7 @@ class TagEditorDialog(QDialog):
     def _load_tags(self):
         """Load tags from config into local copy."""
         self._tags = [
-            LogTag(tag.name, tag.color, tag.enabled, tag.order)
+            LogTag(tag.name, tag.color, tag.enabled, tag.order, tag.message_color, tag.message_match_tag)
             for tag in ConfigManager.load_tags()
         ]
 
@@ -63,14 +63,15 @@ class TagEditorDialog(QDialog):
 
         # Tag table
         self._table = QTableWidget()
-        self._table.setColumnCount(3)
-        self._table.setHorizontalHeaderLabels(["Tag Name", "Color", "Preview"])
+        self._table.setColumnCount(4)
+        self._table.setHorizontalHeaderLabels(["Tag Name", "Tag Color", "Message Color", "Preview"])
 
         # Configure columns
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
 
         # Populate table
         self._refresh_table()
@@ -126,18 +127,32 @@ class TagEditorDialog(QDialog):
             name_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
             self._table.setItem(row, 0, name_item)
 
-            # Color swatch (clickable)
-            color_item = QTableWidgetItem()
-            color_item.setBackground(QColor(tag.color))
-            color_item.setText(tag.color)
-            color_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-            self._table.setItem(row, 1, color_item)
+            # Tag color swatch (clickable)
+            tag_color_item = QTableWidgetItem()
+            tag_color_item.setBackground(QColor(tag.color))
+            tag_color_item.setText(tag.color)
+            tag_color_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            self._table.setItem(row, 1, tag_color_item)
 
-            # Preview (tag name in color)
-            preview_item = QTableWidgetItem(tag.name)
-            preview_item.setForeground(QColor(tag.color))
+            # Message color swatch (clickable) - or "Match Tag" if enabled
+            msg_color_item = QTableWidgetItem()
+            if tag.message_match_tag:
+                msg_color_item.setText("Match Tag")
+                msg_color_item.setBackground(QColor(tag.color))
+            else:
+                msg_color_item.setBackground(QColor(tag.message_color))
+                msg_color_item.setText(tag.message_color)
+            msg_color_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            self._table.setItem(row, 2, msg_color_item)
+
+            # Preview (tag and message in colors)
+            msg_color = tag.color if tag.message_match_tag else tag.message_color
+            preview_text = f"{tag.name}: Sample message"
+            preview_item = QTableWidgetItem(preview_text)
+            # Can't set different colors for different parts, so just show with message color
+            preview_item.setForeground(QColor(msg_color))
             preview_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-            self._table.setItem(row, 2, preview_item)
+            self._table.setItem(row, 3, preview_item)
 
         # Connect double-click to edit
         self._table.cellDoubleClicked.connect(self._on_cell_double_clicked)
@@ -145,8 +160,11 @@ class TagEditorDialog(QDialog):
     def _on_cell_double_clicked(self, row: int, col: int):
         """Handle double-click on table cell."""
         if col == 1:
-            # Double-clicked color column - open color picker
+            # Double-clicked tag color column - open color picker
             self._edit_tag_color(row)
+        elif col == 2:
+            # Double-clicked message color column - open message color editor
+            self._edit_message_color(row)
         else:
             # Double-clicked name or preview - edit tag
             self._on_edit_tag()
@@ -155,7 +173,7 @@ class TagEditorDialog(QDialog):
         """Handle Add Tag button click."""
         dialog = AddEditTagDialog(self, "Add Tag")
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            tag_name, tag_color = dialog.get_result()
+            tag_name, tag_color, msg_color, msg_match = dialog.get_result()
 
             # Check for duplicate
             if any(t.name.upper() == tag_name.upper() for t in self._tags):
@@ -171,7 +189,9 @@ class TagEditorDialog(QDialog):
                 name=tag_name.upper(),
                 color=tag_color,
                 enabled=True,
-                order=len(self._tags)
+                order=len(self._tags),
+                message_color=msg_color,
+                message_match_tag=msg_match
             )
             self._tags.append(new_tag)
             self._refresh_table()
@@ -189,9 +209,9 @@ class TagEditorDialog(QDialog):
 
         tag = self._tags[current_row]
 
-        dialog = AddEditTagDialog(self, "Edit Tag", tag.name, tag.color)
+        dialog = AddEditTagDialog(self, "Edit Tag", tag.name, tag.color, tag.message_color, tag.message_match_tag)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            new_name, new_color = dialog.get_result()
+            new_name, new_color, msg_color, msg_match = dialog.get_result()
 
             # Check for duplicate (excluding current tag)
             if new_name.upper() != tag.name.upper():
@@ -206,6 +226,8 @@ class TagEditorDialog(QDialog):
             # Update tag
             tag.name = new_name.upper()
             tag.color = new_color
+            tag.message_color = msg_color
+            tag.message_match_tag = msg_match
             self._refresh_table()
 
     def _edit_tag_color(self, row: int):
@@ -224,6 +246,62 @@ class TagEditorDialog(QDialog):
         color = QColorDialog.getColor(initial_color, self, "Choose Tag Color")
         if color.isValid():
             tag.color = color.name()  # Returns hex format #RRGGBB
+            self._refresh_table()
+
+    def _edit_message_color(self, row: int):
+        """
+        Edit the message color of a specific tag.
+
+        Args:
+            row: Row index in the table
+        """
+        if row < 0 or row >= len(self._tags):
+            return
+
+        tag = self._tags[row]
+
+        # Show dialog with checkbox for "Match Tag Color"
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QCheckBox, QPushButton, QHBoxLayout
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Message Color for {tag.name}")
+        layout = QVBoxLayout(dialog)
+
+        match_checkbox = QCheckBox("Match Tag Color")
+        match_checkbox.setChecked(tag.message_match_tag)
+        layout.addWidget(match_checkbox)
+
+        # Color picker button (disabled if match is checked)
+        color_btn = QPushButton(f"Choose Color ({tag.message_color})")
+        color_btn.setEnabled(not tag.message_match_tag)
+
+        def on_match_changed():
+            color_btn.setEnabled(not match_checkbox.isChecked())
+
+        match_checkbox.stateChanged.connect(on_match_changed)
+
+        def choose_color():
+            initial_color = QColor(tag.message_color)
+            color = QColorDialog.getColor(initial_color, dialog, "Choose Message Color")
+            if color.isValid():
+                tag.message_color = color.name()
+                color_btn.setText(f"Choose Color ({tag.message_color})")
+
+        color_btn.clicked.connect(choose_color)
+        layout.addWidget(color_btn)
+
+        # OK/Cancel buttons
+        btn_row = QHBoxLayout()
+        ok_btn = QPushButton("OK")
+        ok_btn.clicked.connect(dialog.accept)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(dialog.reject)
+        btn_row.addWidget(ok_btn)
+        btn_row.addWidget(cancel_btn)
+        layout.addLayout(btn_row)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            tag.message_match_tag = match_checkbox.isChecked()
             self._refresh_table()
 
     def _on_remove_tag(self):
@@ -284,7 +362,8 @@ class AddEditTagDialog(QDialog):
     """Dialog for adding or editing a single tag."""
 
     def __init__(self, parent=None, title: str = "Add/Edit Tag",
-                 initial_name: str = "", initial_color: str = "#808080"):
+                 initial_name: str = "", initial_color: str = "#808080",
+                 initial_msg_color: str = "#FFFFFF", initial_msg_match: bool = False):
         """
         Initialize the Add/Edit Tag dialog.
 
@@ -292,14 +371,18 @@ class AddEditTagDialog(QDialog):
             parent: Parent widget
             title: Dialog title
             initial_name: Initial tag name (for edit mode)
-            initial_color: Initial color (hex format)
+            initial_color: Initial tag color (hex format)
+            initial_msg_color: Initial message color (hex format)
+            initial_msg_match: Initial "match tag color" state
         """
         super().__init__(parent)
 
         self.setWindowTitle(title)
-        self.resize(350, 200)
+        self.resize(400, 300)
 
         self._color = initial_color
+        self._msg_color = initial_msg_color
+        self._msg_match = initial_msg_match
 
         # Setup UI
         layout = QVBoxLayout(self)
@@ -328,11 +411,38 @@ class AddEditTagDialog(QDialog):
         color_row.addStretch()
         layout.addLayout(color_row)
 
+        # Message color section
+        msg_color_label = QLabel("Message Color:")
+        layout.addWidget(msg_color_label)
+
+        # Match tag color checkbox
+        self._match_checkbox = QCheckBox("Match Tag Color")
+        self._match_checkbox.setChecked(self._msg_match)
+        self._match_checkbox.stateChanged.connect(self._on_match_changed)
+        layout.addWidget(self._match_checkbox)
+
+        # Message color picker row
+        msg_color_row = QHBoxLayout()
+        msg_color_row.addWidget(QLabel("Custom Color:"))
+
+        self._msg_color_preview = QLabel()
+        self._msg_color_preview.setFixedSize(50, 25)
+        self._msg_color_preview.setStyleSheet(f"background-color: {self._msg_color}; border: 1px solid black;")
+        msg_color_row.addWidget(self._msg_color_preview)
+
+        self._msg_color_btn = QPushButton("Choose...")
+        self._msg_color_btn.clicked.connect(self._on_choose_msg_color)
+        self._msg_color_btn.setEnabled(not self._msg_match)
+        msg_color_row.addWidget(self._msg_color_btn)
+
+        msg_color_row.addStretch()
+        layout.addLayout(msg_color_row)
+
         # Preview
         preview_row = QHBoxLayout()
         preview_row.addWidget(QLabel("Preview:"))
-        self._preview_label = QLabel(initial_name if initial_name else "TAG NAME")
-        self._preview_label.setStyleSheet(f"color: {self._color}; font-weight: bold;")
+        self._preview_label = QLabel(initial_name if initial_name else "TAG NAME: Sample message")
+        self._update_preview()
         preview_row.addWidget(self._preview_label)
         preview_row.addStretch()
         layout.addLayout(preview_row)
@@ -358,7 +468,7 @@ class AddEditTagDialog(QDialog):
         layout.addLayout(button_row)
 
     def _on_choose_color(self):
-        """Handle Choose Color button click."""
+        """Handle Choose Tag Color button click."""
         initial_color = QColor(self._color)
         color = QColorDialog.getColor(initial_color, self, "Choose Tag Color")
 
@@ -367,11 +477,29 @@ class AddEditTagDialog(QDialog):
             self._color_preview.setStyleSheet(f"background-color: {self._color}; border: 1px solid black;")
             self._update_preview()
 
+    def _on_choose_msg_color(self):
+        """Handle Choose Message Color button click."""
+        initial_color = QColor(self._msg_color)
+        color = QColorDialog.getColor(initial_color, self, "Choose Message Color")
+
+        if color.isValid():
+            self._msg_color = color.name()
+            self._msg_color_preview.setStyleSheet(f"background-color: {self._msg_color}; border: 1px solid black;")
+            self._update_preview()
+
+    def _on_match_changed(self):
+        """Handle Match Tag Color checkbox state change."""
+        self._msg_match = self._match_checkbox.isChecked()
+        self._msg_color_btn.setEnabled(not self._msg_match)
+        self._update_preview()
+
     def _update_preview(self):
         """Update the preview label."""
         name = self._name_input.text() if self._name_input.text() else "TAG NAME"
-        self._preview_label.setText(name.upper())
-        self._preview_label.setStyleSheet(f"color: {self._color}; font-weight: bold;")
+        # Show preview with message color
+        msg_color = self._color if self._msg_match else self._msg_color
+        self._preview_label.setText(f"{name.upper()}: Sample message")
+        self._preview_label.setStyleSheet(f"color: {msg_color}; font-weight: bold;")
 
     def accept(self):
         """Validate and accept the dialog."""
@@ -392,11 +520,16 @@ class AddEditTagDialog(QDialog):
 
         super().accept()
 
-    def get_result(self) -> tuple[str, str]:
+    def get_result(self) -> tuple[str, str, str, bool]:
         """
-        Get the tag name and color.
+        Get the tag configuration.
 
         Returns:
-            Tuple of (tag_name, hex_color)
+            Tuple of (tag_name, tag_color, message_color, message_match_tag)
         """
-        return self._name_input.text().strip().upper(), self._color
+        return (
+            self._name_input.text().strip().upper(),
+            self._color,
+            self._msg_color,
+            self._msg_match
+        )
