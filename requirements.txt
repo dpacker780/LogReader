@@ -1,0 +1,11 @@
+# LogReader Python Port - Core Dependencies
+
+# PyQt6 - Main GUI framework
+PyQt6>=6.6.0
+
+# Optional Development Dependencies (uncomment as needed)
+# pytest>=7.4.0           # Unit testing framework
+# pytest-qt>=4.2.0        # PyQt testing support
+# black>=23.0.0           # Code formatting
+# mypy>=1.5.0             # Type checking
+# flake8>=6.0.0           # Linting

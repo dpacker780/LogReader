@@ -1,0 +1,247 @@
+"""
+Table model for displaying log entries in Qt's Model/View architecture.
+
+This module provides a custom QAbstractTableModel that efficiently displays
+log entries with color coding based on log levels.
+"""
+
+import sys
+from pathlib import Path
+from typing import List, Any, Optional
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from PyQt6.QtCore import Qt, QAbstractTableModel, QModelIndex, QVariant
+from PyQt6.QtGui import QColor, QBrush
+
+try:
+    from .log_entry import LogEntry, LogLevel
+except ImportError:
+    from python.log_entry import LogEntry, LogLevel
+
+
+class LogTableModel(QAbstractTableModel):
+    """
+    Custom table model for efficient log entry display.
+
+    Uses Qt's Model/View pattern to efficiently display large numbers of log entries.
+    Supports filtering by maintaining a separate list of filtered indices to avoid
+    copying the entire dataset.
+
+    Features:
+    - Color-coded log levels
+    - Efficient filtering using index list
+    - Four columns: Timestamp, Level, Message, Source
+    """
+
+    # Column indices
+    COL_LINE_NUMBER = 0
+    COL_TIMESTAMP = 1
+    COL_LEVEL = 2
+    COL_MESSAGE = 3
+    COL_SOURCE = 4
+
+    # Column headers
+    HEADERS = ["Line #", "Timestamp", "Level", "Message", "Source"]
+
+    # Color mapping for log levels
+    LEVEL_COLORS = {
+        LogLevel.DEBUG: QColor(0, 255, 255),      # Cyan
+        LogLevel.INFO: QColor(0, 255, 0),         # Green
+        LogLevel.WARN: QColor(255, 255, 0),       # Yellow
+        LogLevel.ERROR: QColor(255, 0, 0),        # Red
+        LogLevel.HEADER: QColor(0, 0, 255),       # Blue
+        LogLevel.FOOTER: QColor(0, 0, 255),       # Blue
+    }
+
+    def __init__(self, parent=None):
+        """
+        Initialize the table model.
+
+        Args:
+            parent: Parent QObject (optional)
+        """
+        super().__init__(parent)
+
+        # All log entries (unfiltered)
+        self._entries: List[LogEntry] = []
+
+        # Indices of entries to display (after filtering/searching)
+        self._filtered_indices: List[int] = []
+
+    def set_entries(self, entries: List[LogEntry]):
+        """
+        Set the log entries to display.
+
+        This replaces all existing entries and resets the model.
+
+        Args:
+            entries: List of LogEntry objects to display
+        """
+        self.beginResetModel()
+
+        self._entries = entries
+        # Initially, show all entries (no filter)
+        self._filtered_indices = list(range(len(entries)))
+
+        self.endResetModel()
+
+    def set_filtered_indices(self, indices: List[int]):
+        """
+        Set which entries to display based on filtering/searching.
+
+        This allows efficient filtering without copying the entire entry list.
+
+        Args:
+            indices: List of indices into self._entries to display
+        """
+        self.beginResetModel()
+        self._filtered_indices = indices
+        self.endResetModel()
+
+    def get_entry(self, row: int) -> Optional[LogEntry]:
+        """
+        Get the log entry at the specified row.
+
+        Args:
+            row: Row index in the filtered view
+
+        Returns:
+            LogEntry object or None if row is invalid
+        """
+        if 0 <= row < len(self._filtered_indices):
+            entry_index = self._filtered_indices[row]
+            if 0 <= entry_index < len(self._entries):
+                return self._entries[entry_index]
+        return None
+
+    def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
+        """
+        Return the number of rows (filtered entries) in the model.
+
+        Args:
+            parent: Parent index (unused for table models)
+
+        Returns:
+            Number of rows to display
+        """
+        if parent.isValid():
+            return 0
+        return len(self._filtered_indices)
+
+    def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
+        """
+        Return the number of columns in the model.
+
+        Args:
+            parent: Parent index (unused for table models)
+
+        Returns:
+            Number of columns (always 4)
+        """
+        if parent.isValid():
+            return 0
+        return len(self.HEADERS)
+
+    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
+        """
+        Return data for the specified cell and role.
+
+        Args:
+            index: Cell index (row, column)
+            role: Data role (DisplayRole, ForegroundRole, etc.)
+
+        Returns:
+            Data for the specified role, or None if not available
+        """
+        if not index.isValid():
+            return QVariant()
+
+        row = index.row()
+        col = index.column()
+
+        # Get the log entry for this row
+        entry = self.get_entry(row)
+        if entry is None:
+            return QVariant()
+
+        # DisplayRole: Return the text to display
+        if role == Qt.ItemDataRole.DisplayRole:
+            if col == self.COL_LINE_NUMBER:
+                return str(entry.line_number)
+            elif col == self.COL_TIMESTAMP:
+                return entry.timestamp
+            elif col == self.COL_LEVEL:
+                return entry.level.value
+            elif col == self.COL_MESSAGE:
+                return entry.message
+            elif col == self.COL_SOURCE:
+                return entry.format_source_info()
+
+        # ForegroundRole: Return the text color
+        elif role == Qt.ItemDataRole.ForegroundRole:
+            if col == self.COL_LINE_NUMBER:
+                # Dimmed gray for line numbers
+                return QBrush(QColor(128, 128, 128))
+            elif col == self.COL_LEVEL:
+                color = self.LEVEL_COLORS.get(entry.level, QColor(255, 255, 255))
+                return QBrush(color)
+
+        # TextAlignmentRole: Right-align line numbers, center-align level
+        elif role == Qt.ItemDataRole.TextAlignmentRole:
+            if col == self.COL_LINE_NUMBER:
+                return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            elif col == self.COL_LEVEL:
+                return Qt.AlignmentFlag.AlignCenter
+
+        return QVariant()
+
+    def headerData(
+        self,
+        section: int,
+        orientation: Qt.Orientation,
+        role: int = Qt.ItemDataRole.DisplayRole
+    ) -> Any:
+        """
+        Return header data for the specified section.
+
+        Args:
+            section: Column or row index
+            orientation: Horizontal (column) or Vertical (row)
+            role: Data role
+
+        Returns:
+            Header text or None
+        """
+        if role == Qt.ItemDataRole.DisplayRole:
+            if orientation == Qt.Orientation.Horizontal:
+                if 0 <= section < len(self.HEADERS):
+                    return self.HEADERS[section]
+
+        return QVariant()
+
+    def get_total_entry_count(self) -> int:
+        """
+        Get the total number of entries (unfiltered).
+
+        Returns:
+            Total number of log entries
+        """
+        return len(self._entries)
+
+    def get_filtered_entry_count(self) -> int:
+        """
+        Get the number of filtered entries (currently displayed).
+
+        Returns:
+            Number of filtered entries
+        """
+        return len(self._filtered_indices)
+
+    def clear(self):
+        """Clear all entries from the model."""
+        self.beginResetModel()
+        self._entries.clear()
+        self._filtered_indices.clear()
+        self.endResetModel()

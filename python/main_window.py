@@ -1,0 +1,722 @@
+"""
+Main window for LogReader application.
+
+This module defines the MainWindow class which contains all UI components
+and handles user interactions.
+"""
+
+import sys
+import threading
+from pathlib import Path
+from typing import Dict, List
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from PyQt6.QtWidgets import (
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLineEdit, QPushButton, QLabel, QTableView,
+    QCheckBox, QFrame, QSizePolicy, QHeaderView, QMessageBox, QFileDialog, QApplication
+)
+from PyQt6.QtCore import Qt, QSize, QObject, pyqtSignal
+from PyQt6.QtGui import QFont, QColor, QKeySequence, QShortcut, QAction
+
+from python.log_entry import LogLevel, LogEntry
+from python.log_table_model import LogTableModel
+from python.log_parser import LogParser
+from python.config import ConfigManager
+
+
+class ParserSignals(QObject):
+    """
+    Signals for communicating from parser thread to UI thread.
+
+    Qt signals are thread-safe and automatically marshal calls to the main thread.
+    """
+    # Signal: progress_update(status_message, current_entries)
+    progress_update = pyqtSignal(str, list)
+
+
+class MainWindow(QMainWindow):
+    """
+    Main application window for LogReader.
+
+    Provides a three-pane interface:
+    - Top: File controls (path input, open button, copy button, status)
+    - Middle: Log entries table (scrollable, virtualized)
+    - Bottom: Search and filter controls
+    """
+
+    def __init__(self):
+        """Initialize the main window."""
+        super().__init__()
+
+        # Window properties
+        self.setWindowTitle("LogReader v1.0")
+        self.setMinimumSize(1024, 768)
+        self.resize(1200, 800)
+
+        # Data storage
+        self._log_entries: List[LogEntry] = []
+        self._entries_lock = threading.Lock()
+
+        # Parser and signals
+        self._parser = LogParser()
+        self._parser_signals = ParserSignals()
+        self._parser_signals.progress_update.connect(self._on_parser_progress)
+
+        # UI components will be created in _setup_ui
+        self._file_input: QLineEdit = None  # Hidden, used for internal tracking
+        self._search_input: QLineEdit = None
+        self._jump_input: QLineEdit = None
+        self._jump_button: QPushButton = None
+        self._log_table: QTableView = None
+        self._log_model: LogTableModel = None
+        self._filter_checkboxes: Dict[LogLevel, QCheckBox] = {}
+
+        # Status bar widgets
+        self._status_message: QLabel = None
+        self._status_file: QLabel = None
+        self._status_entries: QLabel = None
+        self._status_line: QLabel = None
+
+        # Setup the user interface
+        self._setup_ui()
+
+        # Setup status bar
+        self._setup_statusbar()
+
+        # Setup menubar
+        self._setup_menubar()
+
+        # Setup keyboard shortcuts
+        self._setup_shortcuts()
+
+        # Load last file path from config
+        last_file = ConfigManager.load_last_file_path()
+        self._file_input.setText(last_file)
+
+    def _setup_ui(self):
+        """Create and layout all UI components."""
+        # Create central widget
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+
+        # Main vertical layout
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
+
+        # Initialize file input (hidden, used for internal tracking)
+        self._create_file_controls_pane()
+
+        # Add two panes (removed top file controls pane)
+        main_layout.addWidget(self._create_log_display_pane(), stretch=1)
+        main_layout.addWidget(self._create_search_filter_pane())
+
+    def _create_file_controls_pane(self) -> QFrame:
+        """
+        Create the top pane - now removed for cleaner UI.
+
+        File opening is done via File menu or Ctrl+O.
+        Returns None since this pane is no longer used.
+        """
+        # Keep _file_input for internal tracking (needed for reload)
+        # but don't display it
+        self._file_input = QLineEdit()
+        self._file_input.setVisible(False)
+
+        return None
+
+    def _create_log_display_pane(self) -> QFrame:
+        """
+        Create the middle pane with log entries table.
+
+        Returns:
+            QFrame containing the log table and entry count
+        """
+        frame = QFrame()
+        frame.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Raised)
+
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(5)
+
+        # Create table model
+        self._log_model = LogTableModel()
+
+        # Log table view
+        self._log_table = QTableView()
+        self._log_table.setModel(self._log_model)
+
+        # Configure table appearance
+        self._log_table.setAlternatingRowColors(True)
+        self._log_table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self._log_table.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)  # Allow multi-select
+        self._log_table.setEditTriggers(QTableView.EditTrigger.NoEditTriggers)
+        self._log_table.verticalHeader().setVisible(False)
+
+        # Make clicking anywhere on the row select the entire row
+        self._log_table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        header = self._log_table.horizontalHeader()
+        header.setHighlightSections(False)
+
+        # Set column widths
+        header = self._log_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # Line #
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)  # Timestamp
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)  # Level
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)  # Message
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # Source
+
+        self._log_table.setColumnWidth(0, 70)   # Line #
+        self._log_table.setColumnWidth(1, 120)  # Timestamp
+        self._log_table.setColumnWidth(2, 80)   # Level
+        self._log_table.setColumnWidth(4, 250)  # Source
+
+        # Set font for better readability
+        table_font = QFont("Consolas", 9)
+        if not table_font.exactMatch():
+            table_font = QFont("Courier New", 9)
+        self._log_table.setFont(table_font)
+
+        layout.addWidget(self._log_table)
+
+        return frame
+
+    def _create_search_filter_pane(self) -> QFrame:
+        """
+        Create the bottom pane with search and filter controls.
+
+        Returns:
+            QFrame containing search input and level filter checkboxes
+        """
+        frame = QFrame()
+        frame.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Raised)
+        frame.setMaximumHeight(100)
+
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(5)
+
+        # First row: Search input and Jump to Line
+        search_row = QHBoxLayout()
+
+        search_label = QLabel("Search:")
+        search_label.setMinimumWidth(60)
+        search_row.addWidget(search_label)
+
+        self._search_input = QLineEdit()
+        self._search_input.setPlaceholderText("search term")
+        self._search_input.textChanged.connect(self._on_search_changed)
+        search_row.addWidget(self._search_input, stretch=1)
+
+        # Spacer
+        search_row.addSpacing(20)
+
+        # Jump to Line controls
+        jump_label = QLabel("Jump to Line:")
+        search_row.addWidget(jump_label)
+
+        self._jump_input = QLineEdit()
+        self._jump_input.setPlaceholderText("#")
+        self._jump_input.setMaximumWidth(80)
+        self._jump_input.returnPressed.connect(self._on_jump_clicked)
+        search_row.addWidget(self._jump_input)
+
+        self._jump_button = QPushButton("Go")
+        self._jump_button.setMaximumWidth(50)
+        self._jump_button.clicked.connect(self._on_jump_clicked)
+        search_row.addWidget(self._jump_button)
+
+        layout.addLayout(search_row)
+
+        # Second row: Filter checkboxes
+        filter_row = QHBoxLayout()
+
+        filter_label = QLabel("Filters:")
+        filter_label.setMinimumWidth(60)
+        filter_row.addWidget(filter_label)
+
+        # Create checkboxes for each log level (except HEADER/FOOTER)
+        for level in [LogLevel.DEBUG, LogLevel.INFO, LogLevel.WARN, LogLevel.ERROR]:
+            checkbox = QCheckBox(level.value)
+            checkbox.stateChanged.connect(self._on_filter_changed)
+            self._filter_checkboxes[level] = checkbox
+            filter_row.addWidget(checkbox)
+
+        filter_row.addStretch()
+
+        layout.addLayout(filter_row)
+
+        return frame
+
+    def _on_open_clicked(self):
+        """Handle Open button click - opens file dialog."""
+        # Get the last used directory
+        last_directory = ConfigManager.load_last_directory()
+        if not last_directory:
+            last_directory = str(Path.cwd())
+
+        # Open file dialog
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open Log File",
+            last_directory,
+            "Log Files (*.log);;All Files (*.*)"
+        )
+
+        # User cancelled
+        if not file_path:
+            return
+
+        # Update the file input field (still needed for reload functionality)
+        self._file_input.setText(file_path)
+
+        # Clear existing entries
+        with self._entries_lock:
+            self._log_entries.clear()
+
+        self._log_model.clear()
+        self._update_entry_count(0, 0)
+
+        # Save file path to config
+        ConfigManager.save_last_file_path(file_path)
+
+        # Update status bar file
+        self._update_file_status(file_path)
+
+        # Start async parsing
+        self._update_status("Starting parse...")
+        self._parser.parse_async(file_path, self._parser_callback)
+
+        # Switch focus to search input for convenience
+        self._search_input.setFocus()
+
+    def _on_reload_clicked(self):
+        """Handle Reload action (Ctrl+R)."""
+        file_path = self._file_input.text().strip()
+
+        if not file_path:
+            self._update_status("Error: No file to reload")
+            return
+
+        # Check if file exists
+        if not Path(file_path).exists():
+            self._update_status(f"Error: File not found: {file_path}")
+            return
+
+        # Clear existing entries
+        with self._entries_lock:
+            self._log_entries.clear()
+
+        self._log_model.clear()
+        self._update_entry_count(0, 0)
+
+        # Start async parsing (no need to save config, already saved)
+        self._update_status("Reloading...")
+        self._parser.parse_async(file_path, self._parser_callback)
+
+        print(f"[RELOAD] Reloading file: {file_path}")
+
+        # Switch focus to search input
+        self._search_input.setFocus()
+
+    def _setup_statusbar(self):
+        """Create and setup the status bar."""
+        statusbar = self.statusBar()
+        statusbar.setStyleSheet("QStatusBar::item { border: none; }")
+
+        # Left side: Status message (stretches to fill available space)
+        self._status_message = QLabel("Ready")
+        self._status_message.setMinimumWidth(150)
+        statusbar.addWidget(self._status_message, 1)  # stretch=1
+
+        # Center-left: Active file (permanent widget)
+        self._status_file = QLabel("No file loaded")
+        self._status_file.setMinimumWidth(200)
+        self._status_file.setStyleSheet("QLabel { margin-left: 10px; margin-right: 10px; }")
+        statusbar.addPermanentWidget(self._status_file)
+
+        # Center-right: Entry count (permanent widget)
+        self._status_entries = QLabel("0 entries")
+        self._status_entries.setMinimumWidth(150)
+        self._status_entries.setStyleSheet("QLabel { margin-left: 10px; margin-right: 10px; }")
+        statusbar.addPermanentWidget(self._status_entries)
+
+        # Right: Line info (permanent widget, initially hidden)
+        self._status_line = QLabel("")
+        self._status_line.setMinimumWidth(100)
+        self._status_line.setStyleSheet("QLabel { margin-left: 10px; }")
+        statusbar.addPermanentWidget(self._status_line)
+
+    def _setup_menubar(self):
+        """Create and setup the menubar."""
+        menubar = self.menuBar()
+
+        # File Menu
+        file_menu = menubar.addMenu("&File")
+
+        # File -> Open
+        open_action = QAction("&Open...", self)
+        open_action.setShortcut(QKeySequence.StandardKey.Open)
+        open_action.setStatusTip("Open a log file")
+        open_action.triggered.connect(self._on_open_clicked)
+        file_menu.addAction(open_action)
+
+        # File -> Reload
+        reload_action = QAction("&Reload", self)
+        reload_action.setShortcut(QKeySequence("Ctrl+R"))
+        reload_action.setStatusTip("Reload the current log file")
+        reload_action.triggered.connect(self._on_reload_clicked)
+        file_menu.addAction(reload_action)
+
+        file_menu.addSeparator()
+
+        # File -> Quit
+        quit_action = QAction("&Quit", self)
+        quit_action.setShortcut(QKeySequence.StandardKey.Quit)
+        quit_action.setStatusTip("Exit the application")
+        quit_action.triggered.connect(self.close)
+        file_menu.addAction(quit_action)
+
+        # Help Menu
+        help_menu = menubar.addMenu("&Help")
+
+        # Help -> Tag Colors
+        tag_colors_action = QAction("&Tag Colors", self)
+        tag_colors_action.setStatusTip("Show log level color legend")
+        tag_colors_action.triggered.connect(self._show_tag_colors_help)
+        help_menu.addAction(tag_colors_action)
+
+        # Help -> Keyboard Shortcuts
+        shortcuts_action = QAction("&Keyboard Shortcuts", self)
+        shortcuts_action.setStatusTip("Show keyboard shortcuts")
+        shortcuts_action.triggered.connect(self._show_keyboard_shortcuts_help)
+        help_menu.addAction(shortcuts_action)
+
+    def _setup_shortcuts(self):
+        """Setup keyboard shortcuts."""
+        # Ctrl+O: Open file
+        open_shortcut = QShortcut(QKeySequence.StandardKey.Open, self)
+        open_shortcut.activated.connect(self._on_open_clicked)
+
+        # Ctrl+C: Copy selected rows
+        copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self)
+        copy_shortcut.activated.connect(self._copy_selected_rows)
+
+        # Esc: Clear search
+        esc_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
+        esc_shortcut.activated.connect(self._clear_search)
+
+    def _copy_selected_rows(self):
+        """Copy selected table rows to clipboard."""
+        from PyQt6.QtWidgets import QApplication
+
+        # Get selected rows
+        selection_model = self._log_table.selectionModel()
+        if not selection_model.hasSelection():
+            self._update_status("No rows selected")
+            return
+
+        selected_rows = selection_model.selectedRows()
+        if not selected_rows:
+            self._update_status("No rows selected")
+            return
+
+        # Build clipboard text
+        clipboard_lines = []
+        for index in sorted(selected_rows, key=lambda x: x.row()):
+            row = index.row()
+            entry = self._log_model.get_entry(row)
+            if entry:
+                clipboard_lines.append(entry.to_clipboard_format())
+
+        if clipboard_lines:
+            clipboard_text = "\n".join(clipboard_lines)
+            QApplication.clipboard().setText(clipboard_text)
+            self._update_status(f"Copied {len(clipboard_lines)} entries to clipboard")
+            print(f"[CLIPBOARD] Copied {len(clipboard_lines)} entries")
+        else:
+            self._update_status("No entries to copy")
+
+    def _clear_search(self):
+        """Clear the search input."""
+        self._search_input.clear()
+        self._search_input.setFocus()
+
+    def _on_search_changed(self, text: str):
+        """Handle search text change."""
+        # Apply combined filters and search
+        self._apply_filters()
+
+    def _on_filter_changed(self, state: int):
+        """Handle filter checkbox state change."""
+        # Apply combined filters and search
+        self._apply_filters()
+
+    def _apply_filters(self):
+        """
+        Apply level filters and search to log entries.
+
+        This method filters the log entries based on:
+        1. Level filters (checkboxes) - OR logic
+        2. Search text (substring match) - AND logic with filters
+
+        Updates the table model with filtered indices for efficient display.
+        """
+        # Get current search term
+        search_term = self._search_input.text().strip().lower()
+
+        # Get which level filters are active
+        active_filters = set()
+        for level, checkbox in self._filter_checkboxes.items():
+            if checkbox.isChecked():
+                active_filters.add(level)
+
+        # Check if any filters are active
+        any_filter_active = len(active_filters) > 0
+
+        # Filter entries
+        filtered_indices = []
+
+        # Thread-safe access to entries
+        with self._entries_lock:
+            for i, entry in enumerate(self._log_entries):
+                # Apply level filter (OR logic)
+                if any_filter_active:
+                    if entry.level not in active_filters:
+                        continue  # Skip this entry
+
+                # Apply search filter (AND logic - must also pass level filter)
+                if search_term:
+                    if search_term not in entry.message.lower():
+                        continue  # Skip this entry
+
+                # Entry passed all filters
+                filtered_indices.append(i)
+
+        # Update table model with filtered indices
+        self._log_model.set_filtered_indices(filtered_indices)
+
+        # Update entry count display
+        total = len(self._log_entries)
+        shown = len(filtered_indices)
+        self._update_entry_count(shown, total)
+
+        # Log filter status
+        filter_desc = []
+        if active_filters:
+            levels = [level.value for level in active_filters]
+            filter_desc.append(f"Levels: {', '.join(levels)}")
+        if search_term:
+            filter_desc.append(f"Search: '{search_term}'")
+
+        if filter_desc:
+            print(f"[FILTER] {' | '.join(filter_desc)} => {shown}/{total} entries")
+
+    def _on_jump_clicked(self):
+        """Handle Jump to Line button click or Enter key."""
+        line_text = self._jump_input.text().strip()
+
+        if not line_text:
+            self._update_status("Error: Enter a line number")
+            return
+
+        try:
+            line_number = int(line_text)
+        except ValueError:
+            self._update_status(f"Error: Invalid line number '{line_text}'")
+            return
+
+        if line_number <= 0:
+            self._update_status("Error: Line number must be positive")
+            return
+
+        # Search for the entry with this line number
+        found_index = None
+        with self._entries_lock:
+            for i, entry in enumerate(self._log_entries):
+                if entry.line_number == line_number:
+                    found_index = i
+                    break
+
+        if found_index is None:
+            self._update_status(f"Error: Line {line_number} not found")
+            return
+
+        # Clear all filters to ensure the line is visible
+        self._clear_all_filters()
+
+        # Select and scroll to the row
+        model_index = self._log_model.index(found_index, 0)
+        self._log_table.selectRow(found_index)
+        self._log_table.scrollTo(model_index, QTableView.ScrollHint.PositionAtCenter)
+
+        self._update_status(f"Jumped to line {line_number}")
+        print(f"[JUMP] Jumped to line {line_number}")
+
+        # Clear the jump input
+        self._jump_input.clear()
+
+    def _clear_all_filters(self):
+        """Clear all filters and search to show all entries."""
+        # Uncheck all filter checkboxes
+        for checkbox in self._filter_checkboxes.values():
+            checkbox.setChecked(False)
+
+        # Clear search input
+        self._search_input.clear()
+
+        # Reapply filters (which will show all entries)
+        self._apply_filters()
+
+    def _update_status(self, message: str):
+        """
+        Update the status message in status bar.
+
+        Args:
+            message: Status message to display
+        """
+        self._status_message.setText(message)
+        print(f"[STATUS] {message}")
+
+    def _update_entry_count(self, shown: int, total: int):
+        """
+        Update the entry count in status bar.
+
+        Args:
+            shown: Number of entries currently shown
+            total: Total number of entries
+        """
+        if shown == total:
+            self._status_entries.setText(f"{total:,} entries")
+        else:
+            self._status_entries.setText(f"{total:,} entries ({shown:,} visible)")
+
+    def _update_file_status(self, file_path: str):
+        """
+        Update the active file in status bar.
+
+        Args:
+            file_path: Path to the active log file
+        """
+        if file_path:
+            # Show just the filename, not full path
+            filename = Path(file_path).name
+            self._status_file.setText(f"File: {filename}")
+        else:
+            self._status_file.setText("No file loaded")
+
+    def _parser_callback(self, status: str, entries: List[LogEntry]):
+        """
+        Callback from parser thread with progress updates.
+
+        This runs in the parser thread, so we emit a signal to marshal
+        the call to the main UI thread.
+
+        Args:
+            status: Status message from parser
+            entries: Current list of parsed entries
+        """
+        # Make a copy of entries to avoid threading issues
+        entries_copy = entries.copy()
+
+        # Emit signal to update UI (thread-safe)
+        self._parser_signals.progress_update.emit(status, entries_copy)
+
+    def _on_parser_progress(self, status: str, entries: List[LogEntry]):
+        """
+        Handle parser progress update in the UI thread.
+
+        This is called via Qt signal, so it runs in the main thread.
+
+        Args:
+            status: Status message from parser
+            entries: Current list of parsed entries
+        """
+        # Update status message
+        self._update_status(status)
+
+        # Update stored entries (thread-safe)
+        with self._entries_lock:
+            self._log_entries = entries
+
+        # Update table model
+        self._log_model.set_entries(entries)
+
+        # Apply any active filters
+        self._apply_filters()
+
+        print(f"[PARSER] {status}")
+
+    def _show_tag_colors_help(self):
+        """Show Tag Colors help dialog."""
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Tag Colors")
+        msg.setTextFormat(Qt.TextFormat.RichText)
+
+        help_text = """
+        <h3>Log Level Colors</h3>
+        <table cellpadding="5">
+        <tr><td><b style="color: cyan;">DEBUG</b></td><td>Cyan - Detailed diagnostic information</td></tr>
+        <tr><td><b style="color: green;">INFO</b></td><td>Green - General informational messages</td></tr>
+        <tr><td><b style="color: yellow;">WARN</b></td><td>Yellow - Warning messages</td></tr>
+        <tr><td><b style="color: red;">ERROR</b></td><td>Red - Error messages</td></tr>
+        <tr><td><b style="color: blue;">HEADER</b></td><td>Blue - Section headers</td></tr>
+        <tr><td><b style="color: blue;">FOOTER</b></td><td>Blue - Section footers</td></tr>
+        </table>
+        <p><i>Use the level filter checkboxes to show/hide specific log levels.</i></p>
+        """
+
+        msg.setText(help_text)
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg.exec()
+
+    def _show_keyboard_shortcuts_help(self):
+        """Show Keyboard Shortcuts help dialog."""
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Keyboard Shortcuts")
+        msg.setTextFormat(Qt.TextFormat.RichText)
+
+        help_text = """
+        <h3>Keyboard Shortcuts</h3>
+        <table cellpadding="5">
+        <tr><td><b>Ctrl+O</b></td><td>Open log file</td></tr>
+        <tr><td><b>Ctrl+R</b></td><td>Reload current log file</td></tr>
+        <tr><td><b>Ctrl+C</b></td><td>Copy selected rows to clipboard</td></tr>
+        <tr><td><b>Ctrl+A</b></td><td>Select all visible rows</td></tr>
+        <tr><td><b>Esc</b></td><td>Clear search input</td></tr>
+        <tr><td><b>Ctrl+Q</b></td><td>Quit application</td></tr>
+        </table>
+
+        <h3>Mouse Selection</h3>
+        <table cellpadding="5">
+        <tr><td><b>Click</b></td><td>Select single row</td></tr>
+        <tr><td><b>Ctrl+Click</b></td><td>Add/remove row from selection</td></tr>
+        <tr><td><b>Shift+Click</b></td><td>Select range of rows</td></tr>
+        </table>
+
+        <p><i>Selected rows can be copied with Ctrl+C</i></p>
+        """
+
+        msg.setText(help_text)
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg.exec()
+
+    def closeEvent(self, event):
+        """
+        Handle window close event.
+
+        Stop any active parsing before closing.
+
+        Args:
+            event: QCloseEvent
+        """
+        # Stop parser if running
+        if self._parser.is_parsing():
+            print("[INFO] Stopping parser before exit...")
+            self._parser.stop_parsing()
+
+        # Accept the close event
+        event.accept()
