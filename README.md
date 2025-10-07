@@ -19,7 +19,7 @@ Cross-platform log file viewer with real-time filtering, search, and navigation 
 - **Jump to Line**: Navigate directly to any line number with auto-filter clearing
 - **Fast Log Parsing**: Async parsing with progress updates (handles 100k+ entries smoothly)
 - **Real-time Filtering**: Filter by log levels (DEBUG, INFO, WARN, ERROR) without re-parsing
-- **Instant Search**: Search through log messages with live results
+- **Instant Search**: Search through log messages with live result
 - **Color-Coded Levels**: Visual distinction between log severity levels
 - **Row Selection**: Select single or multiple rows with Ctrl+C to copy
 - **Keyboard Shortcuts**: Efficient workflow with Ctrl+O, Ctrl+R, Ctrl+C, Esc, Ctrl+Q
