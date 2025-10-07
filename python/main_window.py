@@ -74,6 +74,7 @@ class MainWindow(QMainWindow):
         self._log_table: QTableView = None
         self._log_model: LogTableModel = None
         self._filter_checkboxes: Dict[str, QCheckBox] = {}  # tag_name -> checkbox
+        self._filter_count_labels: Dict[str, QLabel] = {}  # tag_name -> count label
 
         # Status bar widgets
         self._status_message: QLabel = None
@@ -237,6 +238,7 @@ class MainWindow(QMainWindow):
 
         # Second row: Filter checkboxes
         filter_row = QHBoxLayout()
+        filter_row.setSpacing(0)  # Remove spacing between widgets for tight count labels
 
         filter_label = QLabel("Filters:")
         filter_label.setMinimumWidth(60)
@@ -250,7 +252,19 @@ class MainWindow(QMainWindow):
                 checkbox.setChecked(False)  # Default: all filters unchecked (show all)
                 checkbox.stateChanged.connect(self._on_filter_changed)
                 self._filter_checkboxes[tag.name] = checkbox
-                filter_row.addWidget(checkbox)
+                filter_row.addWidget(checkbox, 0)  # No stretch
+
+                # Add a label for count (initially hidden)
+                count_label = QLabel("")
+                count_label.setStyleSheet("QLabel { color: #90EE90; padding: 0px; margin: 0px; }")  # Light green, no padding/margin
+                count_label.setContentsMargins(0, 0, 0, 0)
+                count_label.setVisible(False)
+                self._filter_count_labels[tag.name] = count_label
+                filter_row.addWidget(count_label, 0)  # No stretch
+
+                # Add small spacer between checkbox+count groups (since layout spacing is 0)
+                spacer = QLabel("  ")  # Two spaces for separation
+                filter_row.addWidget(spacer)
 
         filter_row.addStretch()
 
@@ -434,10 +448,8 @@ class MainWindow(QMainWindow):
         help_menu.addAction(about_action)
 
     def _setup_shortcuts(self):
-        """Setup keyboard shortcuts."""
-        # Ctrl+O: Open file
-        open_shortcut = QShortcut(QKeySequence.StandardKey.Open, self)
-        open_shortcut.activated.connect(self._on_open_clicked)
+        """Setup keyboard shortcuts that aren't already in menu actions."""
+        # Note: Ctrl+O, Ctrl+R, Ctrl+Q are already set in menu actions
 
         # Ctrl+C: Copy selected rows
         copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self)
@@ -553,6 +565,49 @@ class MainWindow(QMainWindow):
 
         if filter_desc:
             print(f"[FILTER] {' | '.join(filter_desc)} => {shown}/{total} entries")
+
+        # Update tag counts in filter checkboxes
+        self._update_tag_counts()
+
+    def _update_tag_counts(self):
+        """
+        Update tag counts in filter checkboxes.
+
+        Counts entries by tag, respecting current search filter (not level filters).
+        Only displays counts for tags with show_count=True.
+        """
+        # Get current search term
+        search_term = self._search_input.text().strip().lower()
+
+        # Count entries by tag (respecting current search filter)
+        tag_counts: Dict[str, int] = {}
+
+        with self._entries_lock:
+            for entry in self._log_entries:
+                # Apply search filter if active
+                if search_term:
+                    if search_term not in entry.message.lower():
+                        continue
+
+                # Increment count for this tag
+                tag_name = entry.level.value
+                tag_counts[tag_name] = tag_counts.get(tag_name, 0) + 1
+
+        # Update checkbox labels and count labels (conditionally show counts)
+        for tag_name, checkbox in self._filter_checkboxes.items():
+            count = tag_counts.get(tag_name, 0)
+
+            # Check if this tag should show count
+            tag = ConfigManager.get_or_create_tag(tag_name)
+            count_label = self._filter_count_labels.get(tag_name)
+
+            if tag.show_count and count_label:
+                # Show count in separate light green label
+                count_label.setText(f"[{count}]")
+                count_label.setVisible(True)
+            elif count_label:
+                # Hide count label
+                count_label.setVisible(False)
 
     def _on_jump_clicked(self):
         """Handle Jump to Line button click or Enter key."""
@@ -737,15 +792,18 @@ class MainWindow(QMainWindow):
             updated_tags = dialog.get_tags()
             ConfigManager.save_tags(updated_tags)
 
+            # Update tag counts immediately (show_count may have changed)
+            self._update_tag_counts()
+
             # Inform user that they should reload to see changes
             QMessageBox.information(
                 self,
                 "Tags Updated",
                 "Tags have been updated successfully.\n\n"
                 "To see the changes:\n"
-                "1. Filter checkboxes will update on next app restart\n"
+                "1. Tag counts updated immediately\n"
                 "2. Colors will apply immediately to newly parsed files\n"
-                "3. Consider reloading the current file (Ctrl+R)"
+                "3. Consider reloading the current file (Ctrl+R) to see color changes"
             )
 
     def _show_shortcuts_help(self):

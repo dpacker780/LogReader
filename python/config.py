@@ -27,6 +27,7 @@ class LogTag:
     order: int = 0         # Display order in UI
     message_color: str = "#FFFFFF"  # Hex color for message text (default white)
     message_match_tag: bool = False  # If True, message uses tag color
+    show_count: bool = False  # If True, show entry count in filter UI
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -36,7 +37,8 @@ class LogTag:
             "enabled": self.enabled,
             "order": self.order,
             "message_color": self.message_color,
-            "message_match_tag": self.message_match_tag
+            "message_match_tag": self.message_match_tag,
+            "show_count": self.show_count
         }
 
     @classmethod
@@ -48,14 +50,15 @@ class LogTag:
             enabled=data.get("enabled", True),
             order=data.get("order", 0),
             message_color=data.get("message_color", "#FFFFFF"),
-            message_match_tag=data.get("message_match_tag", False)
+            message_match_tag=data.get("message_match_tag", False),
+            show_count=data.get("show_count", False)
         )
 
 
 @dataclass
 class AppConfig:
     """Application configuration."""
-    version: str = "1.1"
+    version: str = "1.2"
     last_directory: str = ""
     last_file: str = ""
     tags: List[LogTag] = field(default_factory=list)
@@ -73,14 +76,14 @@ class AppConfig:
 
     @staticmethod
     def _default_tags() -> List[LogTag]:
-        """Return default log tags matching v1.0 behavior."""
+        """Return default log tags (v1.2: show_count for WARN/ERROR only)."""
         return [
-            LogTag("DEBUG", "#00FFFF", True, 0, "#FFFFFF", False),   # Cyan tag, white message
-            LogTag("INFO", "#00FF00", True, 1, "#FFFFFF", False),    # Green tag, white message
-            LogTag("WARN", "#FFFF00", True, 2, "#FFFFFF", False),    # Yellow tag, white message
-            LogTag("ERROR", "#FF0000", True, 3, "#FFFFFF", False),   # Red tag, white message
-            LogTag("HEADER", "#0000FF", True, 4, "#FFFFFF", False),  # Blue tag, white message
-            LogTag("FOOTER", "#0000FF", True, 5, "#FFFFFF", False),  # Blue tag, white message
+            LogTag("DEBUG", "#00FFFF", True, 0, "#FFFFFF", False, False),   # Cyan tag, white message, no count
+            LogTag("INFO", "#00FF00", True, 1, "#FFFFFF", False, False),    # Green tag, white message, no count
+            LogTag("WARN", "#FFFF00", True, 2, "#FFFFFF", False, True),     # Yellow tag, white message, show count
+            LogTag("ERROR", "#FF0000", True, 3, "#FFFFFF", False, True),    # Red tag, white message, show count
+            LogTag("HEADER", "#0000FF", True, 4, "#FFFFFF", False, False),  # Blue tag, white message, no count
+            LogTag("FOOTER", "#0000FF", True, 5, "#FFFFFF", False, False),  # Blue tag, white message, no count
         ]
 
     def to_json(self) -> Dict[str, Any]:
@@ -162,8 +165,18 @@ class ConfigManager:
             try:
                 with json_path.open('r', encoding='utf-8') as f:
                     data = json.load(f)
-                cls._config = AppConfig.from_json(data)
-                logger.info("Loaded configuration from JSON")
+
+                # Check if migration from v1.1 to v1.2 is needed
+                if data.get("version") == "1.1":
+                    logger.info("Migrating config from v1.1 to v1.2...")
+                    data = cls._migrate_v1_1_to_v1_2(data)
+                    cls._config = AppConfig.from_json(data)
+                    cls.save_config(cls._config)  # Save migrated config
+                    logger.info("Migration to v1.2 complete")
+                else:
+                    cls._config = AppConfig.from_json(data)
+                    logger.info("Loaded configuration from JSON")
+
                 return cls._config
             except Exception as e:
                 logger.error(f"Error loading JSON config: {e}")
@@ -248,6 +261,33 @@ class ConfigManager:
         except Exception as e:
             logger.error(f"Error migrating from TXT config: {e}")
             return None
+
+    @classmethod
+    def _migrate_v1_1_to_v1_2(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Migrate configuration from v1.1 to v1.2.
+
+        Changes in v1.2:
+        - Added show_count field to LogTag (default: False for all tags except WARN/ERROR)
+
+        Args:
+            data: JSON data from v1.1 config
+
+        Returns:
+            Updated JSON data for v1.2
+        """
+        # Update version
+        data["version"] = "1.2"
+
+        # Add show_count field to all existing tags
+        tags = data.get("tags", [])
+        for tag in tags:
+            # Default: only WARN and ERROR show counts
+            tag_name = tag.get("name", "").upper()
+            tag["show_count"] = (tag_name in ["WARN", "ERROR"])
+
+        logger.info(f"Migrated {len(tags)} tags to v1.2 format")
+        return data
 
     @classmethod
     def load_last_directory(cls) -> Optional[str]:
@@ -404,14 +444,15 @@ class ConfigManager:
             if tag.name.upper() == tag_name.upper():
                 return tag
 
-        # Create new tag with default gray color
+        # Create new tag with default gray color (no count display)
         new_tag = LogTag(
             name=tag_name.upper(),
             color="#808080",  # Gray tag
             enabled=True,
             order=len(config.tags),  # Append at end
             message_color="#FFFFFF",  # White message
-            message_match_tag=False
+            message_match_tag=False,
+            show_count=False  # Auto-discovered tags don't show counts by default
         )
 
         config.tags.append(new_tag)

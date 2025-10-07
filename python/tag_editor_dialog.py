@@ -12,7 +12,7 @@ from typing import List, Optional
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView,
-    QMessageBox, QColorDialog, QLabel, QLineEdit
+    QMessageBox, QColorDialog, QLabel, QLineEdit, QCheckBox, QWidget
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
@@ -45,7 +45,7 @@ class TagEditorDialog(QDialog):
     def _load_tags(self):
         """Load tags from config into local copy."""
         self._tags = [
-            LogTag(tag.name, tag.color, tag.enabled, tag.order, tag.message_color, tag.message_match_tag)
+            LogTag(tag.name, tag.color, tag.enabled, tag.order, tag.message_color, tag.message_match_tag, tag.show_count)
             for tag in ConfigManager.load_tags()
         ]
 
@@ -63,15 +63,16 @@ class TagEditorDialog(QDialog):
 
         # Tag table
         self._table = QTableWidget()
-        self._table.setColumnCount(4)
-        self._table.setHorizontalHeaderLabels(["Tag Name", "Tag Color", "Message Color", "Preview"])
+        self._table.setColumnCount(5)
+        self._table.setHorizontalHeaderLabels(["Tag Name", "Tag Color", "Message Color", "Show Count", "Preview"])
 
         # Configure columns
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
 
         # Populate table
         self._refresh_table()
@@ -145,14 +146,25 @@ class TagEditorDialog(QDialog):
             msg_color_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
             self._table.setItem(row, 2, msg_color_item)
 
-            # Preview (tag and message in colors)
+            # Show Count checkbox (column 3)
+            count_checkbox = QCheckBox()
+            count_checkbox.setChecked(tag.show_count)
+            count_checkbox.stateChanged.connect(lambda state, r=row: self._on_show_count_changed(r, state))
+            count_widget = QWidget()
+            count_layout = QHBoxLayout(count_widget)
+            count_layout.addWidget(count_checkbox)
+            count_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            count_layout.setContentsMargins(0, 0, 0, 0)
+            self._table.setCellWidget(row, 3, count_widget)
+
+            # Preview (tag and message in colors) - now column 4
             msg_color = tag.color if tag.message_match_tag else tag.message_color
             preview_text = f"{tag.name}: Sample message"
             preview_item = QTableWidgetItem(preview_text)
             # Can't set different colors for different parts, so just show with message color
             preview_item.setForeground(QColor(msg_color))
             preview_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-            self._table.setItem(row, 3, preview_item)
+            self._table.setItem(row, 4, preview_item)
 
         # Connect double-click to edit
         self._table.cellDoubleClicked.connect(self._on_cell_double_clicked)
@@ -169,6 +181,11 @@ class TagEditorDialog(QDialog):
             # Double-clicked name or preview - edit tag
             self._on_edit_tag()
 
+    def _on_show_count_changed(self, row: int, state: int):
+        """Handle show count checkbox state change."""
+        if 0 <= row < len(self._tags):
+            self._tags[row].show_count = (state == Qt.CheckState.Checked.value)
+
     def _on_add_tag(self):
         """Handle Add Tag button click."""
         dialog = AddEditTagDialog(self, "Add Tag")
@@ -184,14 +201,15 @@ class TagEditorDialog(QDialog):
                 )
                 return
 
-            # Add new tag
+            # Add new tag (show_count defaults to False for new tags)
             new_tag = LogTag(
                 name=tag_name.upper(),
                 color=tag_color,
                 enabled=True,
                 order=len(self._tags),
                 message_color=msg_color,
-                message_match_tag=msg_match
+                message_match_tag=msg_match,
+                show_count=False
             )
             self._tags.append(new_tag)
             self._refresh_table()
