@@ -52,7 +52,7 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         # Window properties
-        self.setWindowTitle("LogReader v1.0")
+        self.setWindowTitle("LogReader")
         self.setMinimumSize(1024, 768)
         self.resize(1200, 800)
 
@@ -395,6 +395,14 @@ class MainWindow(QMainWindow):
         shortcuts_action.triggered.connect(self._show_keyboard_shortcuts_help)
         help_menu.addAction(shortcuts_action)
 
+        help_menu.addSeparator()
+
+        # Help -> About
+        about_action = QAction("&About LogReader", self)
+        about_action.setStatusTip("About LogReader")
+        about_action.triggered.connect(self._show_about_dialog)
+        help_menu.addAction(about_action)
+
     def _setup_shortcuts(self):
         """Setup keyboard shortcuts."""
         # Ctrl+O: Open file
@@ -701,6 +709,43 @@ class MainWindow(QMainWindow):
         """
 
         msg.setText(help_text)
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg.exec()
+
+    def _show_about_dialog(self):
+        """Show About LogReader dialog."""
+        msg = QMessageBox(self)
+        msg.setWindowTitle("About LogReader")
+        msg.setTextFormat(Qt.TextFormat.RichText)
+
+        about_text = """
+        <h2>LogReader</h2>
+        <p><b>Version:</b> 1.0</p>
+        <p><b>License:</b> MIT License</p>
+
+        <p>A modern, professional GUI log viewer built with Python and PyQt6.</p>
+
+        <h3>Features</h3>
+        <ul>
+        <li>Native file dialog with directory memory</li>
+        <li>Line numbers and jump to line navigation</li>
+        <li>Real-time filtering and instant search</li>
+        <li>Async parsing with progress updates</li>
+        <li>Color-coded log levels</li>
+        <li>Multi-row selection and copy</li>
+        </ul>
+
+        <h3>Technology</h3>
+        <p><b>Built with:</b> Python 3.10+ and PyQt6</p>
+
+        <h3>Copyright</h3>
+        <p>© 2025 LogReader Team</p>
+        <p>This software is provided under the MIT License.</p>
+
+        <p><i>For documentation, visit the project repository or see USER_GUIDE.md</i></p>
+        """
+
+        msg.setText(about_text)
         msg.setStandardButtons(QMessageBox.StandardButton.Ok)
         msg.exec()
 
