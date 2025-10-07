@@ -17,8 +17,10 @@ from PyQt6.QtGui import QColor, QBrush
 
 try:
     from .log_entry import LogEntry, LogLevel
+    from .config import ConfigManager
 except ImportError:
     from python.log_entry import LogEntry, LogLevel
+    from python.config import ConfigManager
 
 
 class LogTableModel(QAbstractTableModel):
@@ -44,16 +46,6 @@ class LogTableModel(QAbstractTableModel):
 
     # Column headers
     HEADERS = ["Line #", "Timestamp", "Level", "Message", "Source"]
-
-    # Color mapping for log levels
-    LEVEL_COLORS = {
-        LogLevel.DEBUG: QColor(0, 255, 255),      # Cyan
-        LogLevel.INFO: QColor(0, 255, 0),         # Green
-        LogLevel.WARN: QColor(255, 255, 0),       # Yellow
-        LogLevel.ERROR: QColor(255, 0, 0),        # Red
-        LogLevel.HEADER: QColor(0, 0, 255),       # Blue
-        LogLevel.FOOTER: QColor(0, 0, 255),       # Blue
-    }
 
     def __init__(self, parent=None):
         """
@@ -185,7 +177,9 @@ class LogTableModel(QAbstractTableModel):
                 # Dimmed gray for line numbers
                 return QBrush(QColor(128, 128, 128))
             elif col == self.COL_LEVEL:
-                color = self.LEVEL_COLORS.get(entry.level, QColor(255, 255, 255))
+                # Get color from config (dynamic tags)
+                hex_color = ConfigManager.get_tag_color(entry.level.value, "#FFFFFF")
+                color = QColor(hex_color)
                 return QBrush(color)
 
         # TextAlignmentRole: Right-align line numbers, center-align level

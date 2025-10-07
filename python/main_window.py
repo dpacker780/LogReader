@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLineEdit, QPushButton, QLabel, QTableView,
-    QCheckBox, QFrame, QSizePolicy, QHeaderView, QMessageBox, QFileDialog, QApplication
+    QCheckBox, QFrame, QSizePolicy, QHeaderView, QMessageBox, QFileDialog, QApplication, QDialog
 )
 from PyQt6.QtCore import Qt, QSize, QObject, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QKeySequence, QShortcut, QAction
@@ -72,7 +72,7 @@ class MainWindow(QMainWindow):
         self._jump_button: QPushButton = None
         self._log_table: QTableView = None
         self._log_model: LogTableModel = None
-        self._filter_checkboxes: Dict[LogLevel, QCheckBox] = {}
+        self._filter_checkboxes: Dict[str, QCheckBox] = {}  # tag_name -> checkbox
 
         # Status bar widgets
         self._status_message: QLabel = None
@@ -238,12 +238,15 @@ class MainWindow(QMainWindow):
         filter_label.setMinimumWidth(60)
         filter_row.addWidget(filter_label)
 
-        # Create checkboxes for each log level (except HEADER/FOOTER)
-        for level in [LogLevel.DEBUG, LogLevel.INFO, LogLevel.WARN, LogLevel.ERROR]:
-            checkbox = QCheckBox(level.value)
-            checkbox.stateChanged.connect(self._on_filter_changed)
-            self._filter_checkboxes[level] = checkbox
-            filter_row.addWidget(checkbox)
+        # Create checkboxes dynamically from config tags
+        tags = ConfigManager.load_tags()
+        for tag in tags:
+            if tag.enabled:
+                checkbox = QCheckBox(tag.name)
+                checkbox.setChecked(False)  # Default: all filters unchecked (show all)
+                checkbox.stateChanged.connect(self._on_filter_changed)
+                self._filter_checkboxes[tag.name] = checkbox
+                filter_row.addWidget(checkbox)
 
         filter_row.addStretch()
 
@@ -383,11 +386,11 @@ class MainWindow(QMainWindow):
         # Help Menu
         help_menu = menubar.addMenu("&Help")
 
-        # Help -> Tag Colors
-        tag_colors_action = QAction("&Tag Colors", self)
-        tag_colors_action.setStatusTip("Show log level color legend")
-        tag_colors_action.triggered.connect(self._show_tag_colors_help)
-        help_menu.addAction(tag_colors_action)
+        # Help -> Tag Editor
+        tag_editor_action = QAction("&Tag Editor", self)
+        tag_editor_action.setStatusTip("Customize log level tags and colors")
+        tag_editor_action.triggered.connect(self._show_tag_editor)
+        help_menu.addAction(tag_editor_action)
 
         # Help -> Keyboard Shortcuts
         shortcuts_action = QAction("&Keyboard Shortcuts", self)
@@ -476,13 +479,14 @@ class MainWindow(QMainWindow):
         # Get current search term
         search_term = self._search_input.text().strip().lower()
 
-        # Get which level filters are active
+        # Get which tag filters are active (by tag name)
         active_filters = set()
-        for level, checkbox in self._filter_checkboxes.items():
+        for tag_name, checkbox in self._filter_checkboxes.items():
             if checkbox.isChecked():
-                active_filters.add(level)
+                active_filters.add(tag_name)
 
         # Check if any filters are active
+        # If no filters checked, show all entries
         any_filter_active = len(active_filters) > 0
 
         # Filter entries
@@ -491,9 +495,9 @@ class MainWindow(QMainWindow):
         # Thread-safe access to entries
         with self._entries_lock:
             for i, entry in enumerate(self._log_entries):
-                # Apply level filter (OR logic)
+                # Apply level filter (OR logic) - compare by tag name
                 if any_filter_active:
-                    if entry.level not in active_filters:
+                    if entry.level.value not in active_filters:
                         continue  # Skip this entry
 
                 # Apply search filter (AND logic - must also pass level filter)
@@ -515,8 +519,8 @@ class MainWindow(QMainWindow):
         # Log filter status
         filter_desc = []
         if active_filters:
-            levels = [level.value for level in active_filters]
-            filter_desc.append(f"Levels: {', '.join(levels)}")
+            # active_filters now contains tag name strings (not LogLevel objects)
+            filter_desc.append(f"Levels: {', '.join(active_filters)}")
         if search_term:
             filter_desc.append(f"Search: '{search_term}'")
 
@@ -658,28 +662,26 @@ class MainWindow(QMainWindow):
 
         print(f"[PARSER] {status}")
 
-    def _show_tag_colors_help(self):
-        """Show Tag Colors help dialog."""
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Tag Colors")
-        msg.setTextFormat(Qt.TextFormat.RichText)
+    def _show_tag_editor(self):
+        """Show Tag Editor dialog."""
+        from python.tag_editor_dialog import TagEditorDialog
 
-        help_text = """
-        <h3>Log Level Colors</h3>
-        <table cellpadding="5">
-        <tr><td><b style="color: cyan;">DEBUG</b></td><td>Cyan - Detailed diagnostic information</td></tr>
-        <tr><td><b style="color: green;">INFO</b></td><td>Green - General informational messages</td></tr>
-        <tr><td><b style="color: yellow;">WARN</b></td><td>Yellow - Warning messages</td></tr>
-        <tr><td><b style="color: red;">ERROR</b></td><td>Red - Error messages</td></tr>
-        <tr><td><b style="color: blue;">HEADER</b></td><td>Blue - Section headers</td></tr>
-        <tr><td><b style="color: blue;">FOOTER</b></td><td>Blue - Section footers</td></tr>
-        </table>
-        <p><i>Use the level filter checkboxes to show/hide specific log levels.</i></p>
-        """
+        dialog = TagEditorDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            # Save updated tags to config
+            updated_tags = dialog.get_tags()
+            ConfigManager.save_tags(updated_tags)
 
-        msg.setText(help_text)
-        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
-        msg.exec()
+            # Inform user that they should reload to see changes
+            QMessageBox.information(
+                self,
+                "Tags Updated",
+                "Tags have been updated successfully.\n\n"
+                "To see the changes:\n"
+                "1. Filter checkboxes will update on next app restart\n"
+                "2. Colors will apply immediately to newly parsed files\n"
+                "3. Consider reloading the current file (Ctrl+R)"
+            )
 
     def _show_keyboard_shortcuts_help(self):
         """Show Keyboard Shortcuts help dialog."""
@@ -720,7 +722,7 @@ class MainWindow(QMainWindow):
 
         about_text = """
         <h2>LogReader</h2>
-        <p><b>Version:</b> 1.0</p>
+        <p><b>Version:</b> 1.1</p>
         <p><b>License:</b> MIT License</p>
 
         <p>A modern, professional GUI log viewer built with Python and PyQt6.</p>

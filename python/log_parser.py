@@ -15,8 +15,10 @@ import logging
 
 try:
     from .log_entry import LogEntry, LogLevel
+    from .config import ConfigManager
 except ImportError:
     from log_entry import LogEntry, LogLevel
+    from config import ConfigManager
 
 
 logger = logging.getLogger(__name__)
@@ -86,7 +88,10 @@ class LogParser:
                         entries.append(entry)
                         matched_count += 1
 
-            logger.info(f"Parsed {line_count} lines, {matched_count} matched")
+            failed_count = line_count - matched_count
+            logger.info(f"Parsed {line_count} lines: {matched_count} matched, {failed_count} failed")
+            if failed_count > 0:
+                logger.warning(f"  {failed_count} lines failed to parse (check format)")
             return entries
 
         except Exception as e:
@@ -196,9 +201,12 @@ class LogParser:
             if self._stop_requested.is_set():
                 callback("Parsing cancelled", entries)
             else:
+                failed_count = total_lines - len(entries)
                 status = f"Complete: {len(entries)} entries from {total_lines} lines"
                 callback(status, entries)
-                logger.info(f"Async parse complete: {len(entries)} entries")
+                logger.info(f"Async parse complete: {len(entries)} entries from {total_lines} lines")
+                if failed_count > 0:
+                    logger.warning(f"  {failed_count} lines failed to parse (check format)")
 
         except Exception as e:
             logger.error(f"Error in async parsing: {e}")
@@ -245,11 +253,17 @@ class LogParser:
         Returns:
             LogEntry object if parsing succeeds, None otherwise
         """
+        # Skip empty lines
+        if not line.strip():
+            return None
+
         # Split by field separator
         fields = line.split(self.FIELD_SEPARATOR)
 
         # Need at least 4 fields: timestamp, level, message, source_info
         if len(fields) < 4:
+            logger.warning(f"Line {line_number}: Invalid format (expected 4 fields, got {len(fields)})")
+            logger.debug(f"  Content: {line[:100]}...")
             return None
 
         try:
@@ -258,11 +272,12 @@ class LogParser:
             message = fields[2]
             source_info = fields[3]
 
-            # Parse log level
+            # Parse log level (auto-create unknown tags)
             level = LogLevel.from_string(level_str)
-            if level is None:
-                logger.debug(f"Unknown log level: {level_str}")
-                level = LogLevel.DEBUG  # Default fallback
+
+            # Auto-register unknown tags in config with default gray color
+            # This happens silently during parsing - user can customize later
+            ConfigManager.get_or_create_tag(level.value)
 
             # Parse source info using regex
             match = self.SOURCE_INFO_PATTERN.match(source_info)
@@ -287,7 +302,8 @@ class LogParser:
             )
 
         except (IndexError, ValueError) as e:
-            logger.debug(f"Failed to parse line: {e}")
+            logger.warning(f"Line {line_number}: Parse error - {e}")
+            logger.debug(f"  Content: {line[:100]}...")
             return None
 
     def is_parsing(self) -> bool:

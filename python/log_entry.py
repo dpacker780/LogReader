@@ -2,50 +2,74 @@
 Data models for LogReader application.
 
 This module defines the core data structures used throughout the application:
-- LogLevel: Enum defining valid log severity levels
+- LogLevel: String-based log level (replaces enum for v1.1 dynamic tags)
 - LogEntry: Dataclass representing a single parsed log entry
+
+Version 1.1: LogLevel is now a simple string wrapper to support dynamic tags
+from configuration, not a fixed enum.
 """
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import Optional
 
 
-class LogLevel(Enum):
-    """Enumeration of supported log severity levels."""
+class LogLevel:
+    """
+    Represents a log severity level.
 
-    DEBUG = "DEBUG"
-    INFO = "INFO"
-    WARN = "WARN"
-    ERROR = "ERROR"
-    HEADER = "HEADER"
-    FOOTER = "FOOTER"
+    Version 1.1: Changed from Enum to simple string wrapper to support
+    dynamic tag names from configuration.
+    """
+
+    def __init__(self, name: str):
+        """
+        Initialize a LogLevel.
+
+        Args:
+            name: Tag name (e.g., "DEBUG", "INFO", "VERBOSE")
+        """
+        self.value = name.upper()
 
     @classmethod
-    def from_string(cls, level_str: str) -> Optional['LogLevel']:
+    def from_string(cls, level_str: str) -> 'LogLevel':
         """
-        Convert a string to a LogLevel enum value.
+        Convert a string to a LogLevel.
 
         Args:
             level_str: String representation of the log level (case-insensitive)
 
         Returns:
-            LogLevel enum value, or None if the string is invalid
+            LogLevel instance
 
         Example:
             >>> LogLevel.from_string("DEBUG")
-            <LogLevel.DEBUG: 'DEBUG'>
-            >>> LogLevel.from_string("info")
-            <LogLevel.INFO: 'INFO'>
+            LogLevel("DEBUG")
+            >>> LogLevel.from_string("verbose")
+            LogLevel("VERBOSE")
         """
-        try:
-            return cls[level_str.upper()]
-        except (KeyError, AttributeError):
-            return None
+        if not level_str:
+            return cls("UNKNOWN")
+        return cls(level_str.upper())
 
     def __str__(self) -> str:
         """Return the string value of the log level."""
         return self.value
+
+    def __repr__(self) -> str:
+        """Return representation of LogLevel."""
+        return f'LogLevel("{self.value}")'
+
+    def __eq__(self, other) -> bool:
+        """Check equality with another LogLevel or string."""
+        if isinstance(other, LogLevel):
+            return self.value == other.value
+        if isinstance(other, str):
+            return self.value == other.upper()
+        return False
+
+    def __hash__(self) -> int:
+        """Make LogLevel hashable for use in dicts/sets."""
+        return hash(self.value)
 
 
 @dataclass
@@ -55,7 +79,7 @@ class LogEntry:
 
     Attributes:
         timestamp: Time when the log entry was created (e.g., "16:29:40.318")
-        level: Severity level of the log entry
+        level: Severity level of the log entry (LogLevel instance)
         message: The log message content
         source_file: Name of the source file that generated the log
         source_function: Name of the function that generated the log
@@ -65,7 +89,7 @@ class LogEntry:
     Example:
         >>> entry = LogEntry(
         ...     timestamp="16:29:40.318",
-        ...     level=LogLevel.DEBUG,
+        ...     level=LogLevel("DEBUG"),
         ...     message="Vulkan loader version: 1.4.304",
         ...     source_file="Vulkan.cpp",
         ...     source_function="initVulkan",

@@ -1,0 +1,59 @@
+{
+  "version": "1.1",
+  "last_directory": "E:\\Coding\\CPP_Projects\\LogReader",
+  "last_file": "E:/Coding/CPP_Projects/LogReader/helix.log",
+  "tags": [
+    {
+      "name": "DEBUG",
+      "color": "#00FFFF",
+      "enabled": true,
+      "order": 0
+    },
+    {
+      "name": "INFO",
+      "color": "#00FF00",
+      "enabled": true,
+      "order": 1
+    },
+    {
+      "name": "WARN",
+      "color": "#FFFF00",
+      "enabled": true,
+      "order": 2
+    },
+    {
+      "name": "ERROR",
+      "color": "#FF0000",
+      "enabled": true,
+      "order": 3
+    },
+    {
+      "name": "HEADER",
+      "color": "#aa55ff",
+      "enabled": true,
+      "order": 4
+    },
+    {
+      "name": "FOOTER",
+      "color": "#ff5500",
+      "enabled": true,
+      "order": 5
+    },
+    {
+      "name": "NOTICE",
+      "color": "#808080",
+      "enabled": true,
+      "order": 6
+    }
+  ],
+  "window": {
+    "width": 1200,
+    "height": 800,
+    "maximized": false
+  },
+  "preferences": {
+    "font_size": 9,
+    "font_family": "Consolas",
+    "theme": "light"
+  }
+}
