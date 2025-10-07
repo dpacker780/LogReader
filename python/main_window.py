@@ -739,7 +739,7 @@ class MainWindow(QMainWindow):
         <p><b>Built with:</b> Python 3.10+ and PyQt6</p>
 
         <h3>Copyright</h3>
-        <p>© 2025 LogReader Team</p>
+        <p>© 2025 Dave Packer</p>
         <p>This software is provided under the MIT License.</p>
 
         <p><i>For documentation, visit the project repository or see USER_GUIDE.md</i></p>

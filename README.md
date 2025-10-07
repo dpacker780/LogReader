@@ -1,6 +1,7 @@
 # LogReader v1.0
 
-<!-- Screenshot placeholder - to be added -->
+
+![LogReader UI Screenshot]()
 
 **A modern, professional GUI log viewer built with Python and PyQt6.**
 
