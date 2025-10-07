@@ -1,7 +1,7 @@
 # LogReader v1.0
 
 
-![LogReader UI Screenshot]()
+![LogReader UI Screenshot](https://github.com/dpacker780/LogReader/blob/master/logreader_UI.png)
 
 **A modern, professional GUI log viewer built with Python and PyQt6.**
 
