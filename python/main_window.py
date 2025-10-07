@@ -80,6 +80,7 @@ class MainWindow(QMainWindow):
         self._log_model: LogTableModel = None
         self._filter_checkboxes: Dict[str, QCheckBox] = {}  # tag_name -> checkbox
         self._filter_count_labels: Dict[str, QLabel] = {}  # tag_name -> count label
+        self._filter_layout: QHBoxLayout = None  # Store reference to filter row layout
 
         # Status bar widgets
         self._status_message: QLabel = None
@@ -246,12 +247,18 @@ class MainWindow(QMainWindow):
         layout.addLayout(search_row)
 
         # Second row: Filter checkboxes
-        filter_row = QHBoxLayout()
-        filter_row.setSpacing(0)  # Remove spacing between widgets for tight count labels
+        self._filter_layout = QHBoxLayout()
+        self._filter_layout.setSpacing(0)  # Remove spacing between widgets for tight count labels
+        self._build_filter_ui()
+        layout.addLayout(self._filter_layout)
 
+        return frame
+
+    def _build_filter_ui(self):
+        """Build the filter checkboxes UI from current tags."""
         filter_label = QLabel("Filters:")
         filter_label.setMinimumWidth(60)
-        filter_row.addWidget(filter_label)
+        self._filter_layout.addWidget(filter_label)
 
         # Create checkboxes dynamically from config tags
         tags = ConfigManager.load_tags()
@@ -261,7 +268,7 @@ class MainWindow(QMainWindow):
                 checkbox.setChecked(False)  # Default: all filters unchecked (show all)
                 checkbox.stateChanged.connect(self._on_filter_changed)
                 self._filter_checkboxes[tag.name] = checkbox
-                filter_row.addWidget(checkbox, 0)  # No stretch
+                self._filter_layout.addWidget(checkbox, 0)  # No stretch
 
                 # Add a label for count (initially hidden)
                 count_label = QLabel("")
@@ -269,17 +276,31 @@ class MainWindow(QMainWindow):
                 count_label.setContentsMargins(0, 0, 0, 0)
                 count_label.setVisible(False)
                 self._filter_count_labels[tag.name] = count_label
-                filter_row.addWidget(count_label, 0)  # No stretch
+                self._filter_layout.addWidget(count_label, 0)  # No stretch
 
                 # Add small spacer between checkbox+count groups (since layout spacing is 0)
                 spacer = QLabel("  ")  # Two spaces for separation
-                filter_row.addWidget(spacer)
+                self._filter_layout.addWidget(spacer)
 
-        filter_row.addStretch()
+        self._filter_layout.addStretch()
 
-        layout.addLayout(filter_row)
+    def _rebuild_filter_ui(self):
+        """Rebuild the filter UI after tags have been modified."""
+        # Clear existing widgets from layout
+        while self._filter_layout.count():
+            item = self._filter_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
 
-        return frame
+        # Clear the dictionaries
+        self._filter_checkboxes.clear()
+        self._filter_count_labels.clear()
+
+        # Rebuild the UI
+        self._build_filter_ui()
+
+        # Update counts for the new filters
+        self._update_tag_counts()
 
     def _on_open_clicked(self):
         """Handle Open button click - opens file dialog."""
@@ -989,8 +1010,8 @@ class MainWindow(QMainWindow):
             updated_tags = dialog.get_tags()
             ConfigManager.save_tags(updated_tags)
 
-            # Update tag counts immediately (show_count may have changed)
-            self._update_tag_counts()
+            # Rebuild filter UI to reflect changes (enabled/disabled tags, show_count, etc.)
+            self._rebuild_filter_ui()
 
             # Update status bar
             self._update_status("Tags updated!")

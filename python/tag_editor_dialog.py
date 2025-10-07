@@ -33,7 +33,7 @@ class TagEditorDialog(QDialog):
         super().__init__(parent)
 
         self.setWindowTitle("Tag Editor")
-        self.resize(600, 400)
+        self.resize(750, 400)
 
         # Local copy of tags (not saved until OK is clicked)
         self._tags: List[LogTag] = []
@@ -63,8 +63,8 @@ class TagEditorDialog(QDialog):
 
         # Tag table
         self._table = QTableWidget()
-        self._table.setColumnCount(5)
-        self._table.setHorizontalHeaderLabels(["Tag Name", "Tag Color", "Message Color", "Show Count", "Preview"])
+        self._table.setColumnCount(6)
+        self._table.setHorizontalHeaderLabels(["Tag Name", "Filter", "Tag Color", "Message Color", "Show Count", "Preview"])
 
         # Configure columns
         header = self._table.horizontalHeader()
@@ -72,7 +72,8 @@ class TagEditorDialog(QDialog):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
 
         # Populate table
         self._refresh_table()
@@ -129,19 +130,30 @@ class TagEditorDialog(QDialog):
         self._table.setRowCount(len(self._tags))
 
         for row, tag in enumerate(self._tags):
-            # Tag name
+            # Tag name (column 0)
             name_item = QTableWidgetItem(tag.name)
             name_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
             self._table.setItem(row, 0, name_item)
 
-            # Tag color swatch (clickable)
+            # Filter checkbox (column 1)
+            filter_checkbox = QCheckBox()
+            filter_checkbox.setChecked(tag.enabled)
+            filter_checkbox.stateChanged.connect(lambda state, r=row: self._on_filter_changed(r, state))
+            filter_widget = QWidget()
+            filter_layout = QHBoxLayout(filter_widget)
+            filter_layout.addWidget(filter_checkbox)
+            filter_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            filter_layout.setContentsMargins(0, 0, 0, 0)
+            self._table.setCellWidget(row, 1, filter_widget)
+
+            # Tag color swatch (column 2)
             tag_color_item = QTableWidgetItem()
             tag_color_item.setBackground(QColor(tag.color))
             tag_color_item.setText(tag.color)
             tag_color_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-            self._table.setItem(row, 1, tag_color_item)
+            self._table.setItem(row, 2, tag_color_item)
 
-            # Message color swatch (clickable) - or "Match Tag" if enabled
+            # Message color swatch (column 3) - or "Match Tag" if enabled
             msg_color_item = QTableWidgetItem()
             if tag.message_match_tag:
                 msg_color_item.setText("Match Tag")
@@ -150,9 +162,9 @@ class TagEditorDialog(QDialog):
                 msg_color_item.setBackground(QColor(tag.message_color))
                 msg_color_item.setText(tag.message_color)
             msg_color_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-            self._table.setItem(row, 2, msg_color_item)
+            self._table.setItem(row, 3, msg_color_item)
 
-            # Show Count checkbox (column 3)
+            # Show Count checkbox (column 4)
             count_checkbox = QCheckBox()
             count_checkbox.setChecked(tag.show_count)
             count_checkbox.stateChanged.connect(lambda state, r=row: self._on_show_count_changed(r, state))
@@ -161,31 +173,36 @@ class TagEditorDialog(QDialog):
             count_layout.addWidget(count_checkbox)
             count_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
             count_layout.setContentsMargins(0, 0, 0, 0)
-            self._table.setCellWidget(row, 3, count_widget)
+            self._table.setCellWidget(row, 4, count_widget)
 
-            # Preview (tag and message in colors) - now column 4
+            # Preview (tag and message in colors) - column 5
             msg_color = tag.color if tag.message_match_tag else tag.message_color
             preview_text = f"{tag.name}: Sample message"
             preview_item = QTableWidgetItem(preview_text)
             # Can't set different colors for different parts, so just show with message color
             preview_item.setForeground(QColor(msg_color))
             preview_item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-            self._table.setItem(row, 4, preview_item)
+            self._table.setItem(row, 5, preview_item)
 
         # Connect double-click to edit
         self._table.cellDoubleClicked.connect(self._on_cell_double_clicked)
 
     def _on_cell_double_clicked(self, row: int, col: int):
         """Handle double-click on table cell."""
-        if col == 1:
+        if col == 2:
             # Double-clicked tag color column - open color picker
             self._edit_tag_color(row)
-        elif col == 2:
+        elif col == 3:
             # Double-clicked message color column - open message color editor
             self._edit_message_color(row)
         else:
             # Double-clicked name or preview - edit tag
             self._on_edit_tag()
+
+    def _on_filter_changed(self, row: int, state: int):
+        """Handle filter checkbox state change."""
+        if 0 <= row < len(self._tags):
+            self._tags[row].enabled = (state == Qt.CheckState.Checked.value)
 
     def _on_show_count_changed(self, row: int, state: int):
         """Handle show count checkbox state change."""
