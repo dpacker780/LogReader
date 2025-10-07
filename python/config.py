@@ -61,6 +61,8 @@ class AppConfig:
     version: str = "1.2"
     last_directory: str = ""
     last_file: str = ""
+    recent_files: List[str] = field(default_factory=list)
+    max_recent_files: int = 10
     tags: List[LogTag] = field(default_factory=list)
     window_width: int = 1200
     window_height: int = 800
@@ -92,6 +94,8 @@ class AppConfig:
             "version": self.version,
             "last_directory": self.last_directory,
             "last_file": self.last_file,
+            "recent_files": self.recent_files,
+            "max_recent_files": self.max_recent_files,
             "tags": [tag.to_dict() for tag in self.tags],
             "window": {
                 "width": self.window_width,
@@ -113,9 +117,11 @@ class AppConfig:
         prefs = data.get("preferences", {})
 
         return cls(
-            version=data.get("version", "1.1"),
+            version=data.get("version", "1.2"),
             last_directory=data.get("last_directory", ""),
             last_file=data.get("last_file", ""),
+            recent_files=data.get("recent_files", []),
+            max_recent_files=data.get("max_recent_files", 10),
             tags=tags,
             window_width=window.get("width", 1200),
             window_height=window.get("height", 800),
@@ -335,6 +341,13 @@ class ConfigManager:
         config.last_file = file_path
         config.last_directory = str(Path(file_path).parent)
 
+        # Also add to recent files
+        file_path_normalized = str(Path(file_path).resolve())
+        if file_path_normalized in config.recent_files:
+            config.recent_files.remove(file_path_normalized)
+        config.recent_files.insert(0, file_path_normalized)
+        config.recent_files = config.recent_files[:config.max_recent_files]
+
         return cls.save_config(config)
 
     @classmethod
@@ -460,6 +473,69 @@ class ConfigManager:
 
         logger.info(f"Auto-created new tag: {tag_name}")
         return new_tag
+
+    @classmethod
+    def add_recent_file(cls, file_path: str) -> bool:
+        """
+        Add a file to the recent files list.
+
+        Args:
+            file_path: Path to add to recent files
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not file_path:
+            return False
+
+        config = cls.load_config()
+
+        # Normalize path
+        file_path = str(Path(file_path).resolve())
+
+        # Remove if already in list (will re-add at top)
+        if file_path in config.recent_files:
+            config.recent_files.remove(file_path)
+
+        # Add to front of list
+        config.recent_files.insert(0, file_path)
+
+        # Trim to max length
+        config.recent_files = config.recent_files[:config.max_recent_files]
+
+        return cls.save_config(config)
+
+    @classmethod
+    def get_recent_files(cls) -> List[str]:
+        """
+        Get list of recent files, filtered to only existing files.
+
+        Returns:
+            List of recent file paths that exist
+        """
+        config = cls.load_config()
+
+        # Filter to only existing files
+        existing_files = [f for f in config.recent_files if Path(f).exists()]
+
+        # Update config if list changed
+        if len(existing_files) != len(config.recent_files):
+            config.recent_files = existing_files
+            cls.save_config(config)
+
+        return existing_files
+
+    @classmethod
+    def clear_recent_files(cls) -> bool:
+        """
+        Clear the recent files list.
+
+        Returns:
+            True if successful, False otherwise
+        """
+        config = cls.load_config()
+        config.recent_files = []
+        return cls.save_config(config)
 
     @classmethod
     def config_exists(cls) -> bool:

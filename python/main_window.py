@@ -99,9 +99,13 @@ class MainWindow(QMainWindow):
         # Setup keyboard shortcuts
         self._setup_shortcuts()
 
-        # Load last file path from config
+        # Auto-load last file on startup
         last_file = ConfigManager.load_last_file_path()
         self._file_input.setText(last_file)
+
+        # If last file exists, auto-load it
+        if last_file and Path(last_file).exists():
+            self._auto_load_last_file(last_file)
 
     def _setup_ui(self):
         """Create and layout all UI components."""
@@ -330,6 +334,27 @@ class MainWindow(QMainWindow):
         # Switch focus to search input for convenience
         self._search_input.setFocus()
 
+    def _auto_load_last_file(self, file_path: str):
+        """
+        Auto-load the last opened file on startup.
+
+        Args:
+            file_path: Path to the file to load
+        """
+        # Add to file watcher
+        self._current_file_path = file_path
+        self._file_watcher.addPath(file_path)
+
+        # Update status bar file
+        self._update_file_status(file_path)
+
+        # Start async parsing
+        self._update_status("Loading last file...")
+        self._parser.parse_async(file_path, self._parser_callback)
+
+        # Switch focus to search input
+        self._search_input.setFocus()
+
     def _on_reload_clicked(self):
         """Handle Reload action (Ctrl+R)."""
         file_path = self._file_input.text().strip()
@@ -467,6 +492,12 @@ class MainWindow(QMainWindow):
         reload_action.setStatusTip("Reload the current log file")
         reload_action.triggered.connect(self._on_reload_clicked)
         file_menu.addAction(reload_action)
+
+        file_menu.addSeparator()
+
+        # File -> Recent Files (submenu)
+        self._recent_files_menu = file_menu.addMenu("Recent &Files")
+        self._recent_files_menu.aboutToShow.connect(self._update_recent_files_menu)
 
         file_menu.addSeparator()
 
@@ -841,7 +872,112 @@ class MainWindow(QMainWindow):
         # Apply any active filters
         self._apply_filters()
 
+        # If parsing just completed, add helpful hint
+        if status.startswith("Complete:"):
+            self._update_status(f"{status} - Press Ctrl+R to reload")
+
         print(f"[PARSER] {status}")
+
+    def _update_recent_files_menu(self):
+        """Update the Recent Files submenu with current recent files."""
+        # Clear existing menu items
+        self._recent_files_menu.clear()
+
+        # Get recent files
+        recent_files = ConfigManager.get_recent_files()
+
+        if not recent_files:
+            # Show "No Recent Files" if list is empty
+            no_files_action = QAction("No Recent Files", self)
+            no_files_action.setEnabled(False)
+            self._recent_files_menu.addAction(no_files_action)
+            return
+
+        # Add each recent file
+        for file_path in recent_files:
+            # Create shortened display name
+            display_name = Path(file_path).name
+            action = QAction(display_name, self)
+            action.setStatusTip(file_path)
+
+            # Add checkmark if this is the currently open file
+            if file_path == self._current_file_path:
+                action.setCheckable(True)
+                action.setChecked(True)
+
+            # Connect to open handler
+            action.triggered.connect(lambda checked=False, path=file_path: self._open_recent_file(path))
+            self._recent_files_menu.addAction(action)
+
+        # Add separator and Clear option
+        self._recent_files_menu.addSeparator()
+        clear_action = QAction("Clear Recent Files", self)
+        clear_action.triggered.connect(self._clear_recent_files)
+        self._recent_files_menu.addAction(clear_action)
+
+    def _open_recent_file(self, file_path: str):
+        """
+        Open a file from the recent files list.
+
+        Args:
+            file_path: Path to the file to open
+        """
+        # Check if file still exists
+        if not Path(file_path).exists():
+            QMessageBox.warning(
+                self,
+                "File Not Found",
+                f"File no longer exists:\n{file_path}"
+            )
+            return
+
+        # Simulate clicking Open with this file
+        self._file_input.setText(file_path)
+
+        # Remove old file from watcher
+        if self._current_file_path:
+            self._file_watcher.removePath(self._current_file_path)
+
+        # Add new file to watcher
+        self._current_file_path = file_path
+        self._file_watcher.addPath(file_path)
+
+        # Clear file change notification
+        self._clear_file_change_notification()
+
+        # Clear existing entries
+        with self._entries_lock:
+            self._log_entries.clear()
+
+        self._log_model.clear()
+        self._update_entry_count(0, 0)
+
+        # Save file path to config (updates recent files)
+        ConfigManager.save_last_file_path(file_path)
+
+        # Update status bar file
+        self._update_file_status(file_path)
+
+        # Start async parsing
+        self._update_status("Starting parse...")
+        self._parser.parse_async(file_path, self._parser_callback)
+
+        # Switch focus to search input
+        self._search_input.setFocus()
+
+    def _clear_recent_files(self):
+        """Clear the recent files list."""
+        reply = QMessageBox.question(
+            self,
+            "Clear Recent Files",
+            "Are you sure you want to clear the recent files list?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            ConfigManager.clear_recent_files()
+            self._update_status("Recent files cleared")
 
     def _show_tag_editor(self):
         """Show Tag Editor dialog."""
