@@ -153,20 +153,6 @@ Where `<FS>` represents the ASCII field separator (char 31).
 - **Async Design**: UI remains responsive during large file loads
 - **Memory Efficient**: Uses filtered indices instead of copying entries
 
-### Testing Files
-
-- `test_integration.py` - Full application test with auto-load
-- `test_filter_search.py` - Filter and search performance tests
-- `test_parser.py` - Parser unit tests
-
----
-
-## About the Original C++ Version
-
-This project is a Python rewrite of the original C++ terminal-based LogReader. The C++ version is maintained in a separate repository for those who need terminal-only environments.
-
-**For most users, this Python GUI version is recommended** due to its modern interface, enhanced features, and easier installation.
-
 ---
 
 ## Log Format Details
