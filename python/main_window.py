@@ -872,9 +872,9 @@ class MainWindow(QMainWindow):
         # Apply any active filters
         self._apply_filters()
 
-        # If parsing just completed, add helpful hint
+        # Update status with completion message
         if status.startswith("Complete:"):
-            self._update_status(f"{status} - Press Ctrl+R to reload")
+            self._update_status(status)
 
         print(f"[PARSER] {status}")
 
@@ -992,16 +992,8 @@ class MainWindow(QMainWindow):
             # Update tag counts immediately (show_count may have changed)
             self._update_tag_counts()
 
-            # Inform user that they should reload to see changes
-            QMessageBox.information(
-                self,
-                "Tags Updated",
-                "Tags have been updated successfully.\n\n"
-                "To see the changes:\n"
-                "1. Tag counts updated immediately\n"
-                "2. Colors will apply immediately to newly parsed files\n"
-                "3. Consider reloading the current file (Ctrl+R) to see color changes"
-            )
+            # Update status bar
+            self._update_status("Tags updated!")
 
     def _show_shortcuts_help(self):
         """Show Shortcuts help dialog."""

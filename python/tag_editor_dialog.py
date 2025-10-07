@@ -98,6 +98,12 @@ class TagEditorDialog(QDialog):
 
         layout.addLayout(button_row)
 
+        # Note about reload
+        note_label = QLabel("Note: If tag changes don't show, hit Ctrl+R to reload the file for them to take effect.")
+        note_label.setWordWrap(True)
+        note_label.setStyleSheet("QLabel { color: #808080; font-style: italic; }")
+        layout.addWidget(note_label)
+
         # Reset and OK/Cancel buttons
         bottom_row = QHBoxLayout()
 
