@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QCheckBox, QFrame, QSizePolicy, QHeaderView, QMessageBox, QFileDialog, QApplication, QDialog
 )
 # QFrame already imported above
-from PyQt6.QtCore import Qt, QSize, QObject, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, QObject, pyqtSignal, QFileSystemWatcher
 from PyQt6.QtGui import QFont, QColor, QKeySequence, QShortcut, QAction
 
 from python.log_entry import LogLevel, LogEntry
@@ -60,6 +60,11 @@ class MainWindow(QMainWindow):
         # Data storage
         self._log_entries: List[LogEntry] = []
         self._entries_lock = threading.Lock()
+        self._current_file_path: str = ""  # Track currently loaded file
+
+        # File monitoring
+        self._file_watcher = QFileSystemWatcher()
+        self._file_watcher.fileChanged.connect(self._on_file_changed)
 
         # Parser and signals
         self._parser = LogParser()
@@ -294,6 +299,17 @@ class MainWindow(QMainWindow):
         # Update the file input field (still needed for reload functionality)
         self._file_input.setText(file_path)
 
+        # Remove old file from watcher (if any)
+        if self._current_file_path:
+            self._file_watcher.removePath(self._current_file_path)
+
+        # Add new file to watcher
+        self._current_file_path = file_path
+        self._file_watcher.addPath(file_path)
+
+        # Clear file change notification (opening new file)
+        self._clear_file_change_notification()
+
         # Clear existing entries
         with self._entries_lock:
             self._log_entries.clear()
@@ -334,6 +350,9 @@ class MainWindow(QMainWindow):
         self._log_model.clear()
         self._update_entry_count(0, 0)
 
+        # Clear file change notification (if any)
+        self._clear_file_change_notification()
+
         # Start async parsing (no need to save config, already saved)
         self._update_status("Reloading...")
         self._parser.parse_async(file_path, self._parser_callback)
@@ -342,6 +361,39 @@ class MainWindow(QMainWindow):
 
         # Switch focus to search input
         self._search_input.setFocus()
+
+    def _on_file_changed(self, path: str):
+        """
+        Handle file change notification from QFileSystemWatcher.
+
+        Args:
+            path: Path to the file that changed
+        """
+        # Check if file still exists (might have been deleted)
+        if not Path(path).exists():
+            print(f"[FILE WATCHER] File deleted or moved: {path}")
+            # QFileSystemWatcher automatically removes deleted files from watch list
+            # No need to show notification for deleted files
+            return
+
+        # Show red notification in status bar
+        self._show_file_change_notification()
+        print(f"[FILE WATCHER] File changed: {path}")
+
+        # Note: QFileSystemWatcher may stop watching after some editors save files
+        # (they delete and recreate). Re-add to watcher if needed.
+        if path not in self._file_watcher.files():
+            self._file_watcher.addPath(path)
+            print(f"[FILE WATCHER] Re-added file to watch: {path}")
+
+    def _show_file_change_notification(self):
+        """Show red notification that file has been modified."""
+        self._status_message.setText("File has been modified - Press Ctrl+R to reload")
+        self._status_message.setStyleSheet("QLabel { color: #FF0000; font-weight: bold; }")  # Red text
+
+    def _clear_file_change_notification(self):
+        """Clear the file change notification."""
+        self._status_message.setStyleSheet("")  # Reset to normal style
 
     def _setup_statusbar(self):
         """Create and setup the status bar."""
@@ -360,6 +412,7 @@ class MainWindow(QMainWindow):
 
         # Left side: Status message (stretches to fill available space)
         self._status_message = QLabel("Ready")
+        self._status_message.setStyleSheet("QLabel { color: #90EE90; }")  # Light green for normal status
         self._status_message.setMinimumWidth(150)
         self._status_message.setContentsMargins(5, 0, 10, 0)
         statusbar.addWidget(self._status_message, 1)  # stretch=1
@@ -710,6 +763,14 @@ class MainWindow(QMainWindow):
         Args:
             message: Status message to display
         """
+        # Check if this is an error message
+        if message.startswith("Error:"):
+            # Error messages in red
+            self._status_message.setStyleSheet("QLabel { color: #FF0000; font-weight: bold; }")  # Red
+        else:
+            # Normal status in light green
+            self._status_message.setStyleSheet("QLabel { color: #90EE90; }")  # Light green
+
         self._status_message.setText(message)
         print(f"[STATUS] {message}")
 
