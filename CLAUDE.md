@@ -4,268 +4,426 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-LogReader is a cross-platform log file viewer that parses structured log files using ASCII field separator (char 31) format and provides real-time filtering, search, and clipboard copy functionality.
+**LogReader v1.0** is a modern, professional GUI log viewer built with Python and PyQt6. It parses structured log files using ASCII field separator (char 31) format and provides real-time filtering, search, navigation, and copy functionality.
 
-**Current Status**: The C++ version (built with C++17 and FTXUI) is the reference implementation.
+**This is the Python/PyQt6 implementation.** The original C++ terminal version is maintained in a separate repository (`LogReader-Terminal`) and is no longer actively developed.
 
-**Active Development Goal**: Port the application to Python with PyQt6 as the GUI framework.
+## Quick Start
 
-## Development Roadmap
-
-### Phase I: Python Port (Current Phase)
-
-**Objective**: Create a Python/PyQt6 version with feature parity to the C++ version.
-
-**Setup Steps**:
-1. Create local Python virtual environment (avoid using global Python installation)
-2. Create `requirements.txt` with necessary dependencies (PyQt6, etc.)
-3. Install required modules into the virtual environment
-4. Port core functionality maintaining the same architecture patterns
-5. Implement PyQt6 GUI matching the three-pane layout of the C++ version
-
-**Key Python Port Considerations**:
-- Use `threading` module for async parsing (equivalent to C++ `std::thread`)
-- Use `threading.Lock` for synchronization (equivalent to C++ `std::mutex`)
-- Implement QTableWidget or QTableView with virtualization for log display
-- Use PyQt6 signals/slots for progress callbacks from parser thread
-- Maintain the same log format specification (ASCII field separator char 31)
-
-### Phase II: Feature Enhancements (Future)
-
-After the Python port achieves feature parity, enhance the application based on user feedback from the C++ version.
-
-## Python Development Setup
-
-### Creating Virtual Environment (Windows)
-
-```cmd
-python -m venv venv
-venv\Scripts\activate
-```
-
-### Installing Dependencies
+### Setup
 
 ```bash
+# Create virtual environment
+python -m venv venv
+
+# Activate (Windows)
+venv\Scripts\activate
+
+# Activate (macOS/Linux)
+source venv/bin/activate
+
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-### Running the Python Application
+### Running
 
 ```bash
-python src/main.py
+python python/main.py
 ```
 
-### Deactivating Virtual Environment
+### Testing
 
 ```bash
-deactivate
+# Integration test with auto-load
+python python/test_integration.py
+
+# Filter/search performance tests
+python python/test_filter_search.py
+
+# Parser unit tests
+python python/test_parser.py
 ```
 
-## C++ Version (Reference Implementation)
+## Architecture
 
-### Build Commands
+### Core Components
 
-**Windows (Visual Studio):**
-```cmd
-mkdir build
-cd build
-cmake ..
-cmake --build . --config Release
+**python/main.py** (50 lines)
+- Application entry point
+- Creates QApplication and MainWindow
+- Sets up high DPI scaling
+- Version: 1.0
+
+**python/main_window.py** (750+ lines)
+- Main UI window with PyQt6
+- Three-pane layout: Log Display (center), Search/Filters (bottom), Status Bar (bottom)
+- File dialog for opening files (Ctrl+O)
+- Async parsing with progress updates
+- Real-time filtering and search
+- Multi-row selection with Ctrl+C copy
+- Jump to line feature
+- Help menu with Tag Colors, Keyboard Shortcuts, and About dialogs
+
+**python/log_parser.py** (305 lines)
+- LogParser class with sync and async parsing
+- Async: Spawns background thread, batches 5,000 lines at a time
+- Thread-safe with mutex-protected log entry list
+- Progress callbacks via function parameter
+- Tracks line numbers (1-based) for jump-to-line feature
+- ASCII field separator parsing (char 31)
+
+**python/log_table_model.py** (230 lines)
+- QAbstractTableModel for efficient display
+- 5 columns: Line #, Timestamp, Level, Message, Source
+- Color-coded log levels (DEBUG=Cyan, INFO=Green, WARN=Yellow, ERROR=Red)
+- Filtered indices (no entry copying, memory efficient)
+- Virtualized rendering (only visible rows)
+
+**python/log_entry.py** (197 lines)
+- LogEntry dataclass with fields: timestamp, level, message, source_file, source_function, source_line, line_number
+- LogLevel enum: DEBUG, INFO, WARN, ERROR, HEADER, FOOTER
+- to_clipboard_format() method for Ctrl+C copy
+- format_source_info() for table display
+
+**python/config.py** (135 lines)
+- ConfigManager for persistence
+- Saves last directory and file path (two-line format)
+- Simple text file: logreader_config.txt
+- Backward compatible with old single-line format
+
+### File Structure
+
 ```
-
-**Linux/macOS:**
-```bash
-mkdir build && cd build
-cmake ..
-make
-```
-
-### Running the C++ Application
-
-```bash
-./log_reader        # Linux/macOS
-log_reader.exe      # Windows (from build/Release/ or build/Debug/)
+LogReader/
+├── python/
+│   ├── main.py              # Entry point
+│   ├── main_window.py       # Main UI (750+ lines)
+│   ├── log_parser.py        # Parser (305 lines)
+│   ├── log_table_model.py   # Qt Model/View (230 lines)
+│   ├── log_entry.py         # Data models (197 lines)
+│   ├── config.py            # Configuration (135 lines)
+│   └── test_*.py            # Test files (8 files)
+├── venv/                    # Virtual environment (git-ignored)
+├── requirements.txt         # PyQt6>=6.6.0
+├── README.md                # Main documentation
+├── USER_GUIDE.md            # Comprehensive user guide
+├── GETTING_STARTED.md       # Quick setup guide
+├── RELEASE_v1.0.md          # Release notes
+├── CHANGELOG.md             # Version history
+├── logreader_improvements.md # UI improvements spec
+└── logreader_port.md        # Original port spec
 ```
 
 ## Log Format Specification
 
-The parser expects log entries with ASCII field separator (char 31, `\x1F`) in this exact format:
+The parser expects log entries with ASCII field separator (char 31, `\x1F`) in this format:
+
 ```
 timestamp<FS>LEVEL<FS>message<FS>source_file -> function(): line_number
 ```
 
-Example:
+**Example:**
 ```
 16:29:40.318<FS>DEBUG<FS>Vulkan loader version: 1.4.304<FS>Vulkan.cpp -> initVulkan(): 92
+16:29:40.587<FS>INFO<FS>Supported instance extensions:<FS>Vulkan.cpp -> initVulkan(): 106
+16:29:40.629<FS>ERROR<FS>Failed to create surface<FS>Vulkan.cpp -> createSurface(): 156
 ```
 
-Valid log levels: `DEBUG`, `INFO`, `WARN`, `ERROR`, `HEADER`, `FOOTER`
+**Valid log levels**: DEBUG, INFO, WARN, ERROR, HEADER, FOOTER
 
-## Architecture
+**Field separator**: `chr(31)` or `'\x1f'` in Python
 
-### Core Components (C++ Reference Implementation)
+## Key Features (v1.0)
 
-**LogEntry** (src/LogEntry.hpp)
-- Header-only data structure defining `LogEntry` struct and `LogLevel` enum
-- Single source of truth for log data representation
-- **Python equivalent**: Use `dataclass` or `NamedTuple` with `Enum` for LogLevel
+### UI Features
+- **Native File Dialog**: QFileDialog with last directory memory (Ctrl+O)
+- **Status Bar**: 4 sections (status | file | entries | line info)
+- **Line Numbers**: Original file line numbers in first column
+- **Jump to Line**: Navigate to specific line with auto-filter clear
+- **Color-Coded Levels**: Visual distinction for log severity
+- **Multi-Row Selection**: Ctrl+Click, Shift+Click, Ctrl+C to copy
+- **Keyboard Shortcuts**: Ctrl+O, Ctrl+R, Ctrl+C, Ctrl+Q, Esc
 
-**LogParser** (src/LogParser.hpp, src/LogParser.cpp)
-- Handles both synchronous (`parse()`) and asynchronous (`parseAsync()`) parsing
-- Async parsing uses batched processing (5000 lines per batch) with mutex-protected writes
-- Built-in progress callback mechanism for UI updates
-- Thread-safe design with `std::atomic` flags for stopping/status checking
-- **Python equivalent**: Use `threading.Thread`, `threading.Lock`, and `threading.Event` for thread control
+### Core Features
+- **Async Parsing**: Background thread, 5,000 line batches, progress updates
+- **Real-Time Filtering**: By log level (OR logic)
+- **Instant Search**: Substring match in message field (AND logic with filters)
+- **Reload**: Ctrl+R to refresh current file
+- **Configuration**: Persists last directory and file
 
-**main.cpp** (src/main.cpp)
-- Complete FTXUI-based TUI application with three-pane layout:
-  1. File controls pane (top): File input, status display, Open/Copy buttons
-  2. Log display pane (center): Virtualized scrollable table with filtering
-  3. Search & filters pane (bottom): Search input and level checkboxes
-- Uses FTXUI's component system with Container hierarchies for navigation
-- Custom event handlers for scrolling (arrow keys, mouse wheel)
-- **Python equivalent**: Use `QMainWindow` with `QVBoxLayout`, `QLineEdit`, `QTableView` with custom model, `QCheckBox` widgets
+### Help Menu
+- **Tag Colors**: Color legend for log levels
+- **Keyboard Shortcuts**: Complete shortcut reference
+- **About LogReader**: Version, license, features, copyright
 
-### Key Design Patterns
+## Threading Model
 
-**Asynchronous Parsing Architecture:**
-- Parser runs in separate thread (`parsing_thread`)
-- Uses mutex-protected vector for concurrent log entry writes
-- Progress callback posted as custom FTXUI events to trigger UI refresh
-- Batched processing prevents UI blocking on large files
+### Main Thread (PyQt6 Event Loop)
+- Runs `QApplication.exec()`
+- Handles all UI updates and user interactions
+- Receives signals from parser thread
 
-**Virtualized Rendering:**
-- Only renders visible rows (max 45) from potentially large datasets
-- Scroll position management with clamping (`scroll_y` variable in main.cpp:163)
-- Reduces memory overhead for large log files
+### Parser Thread (Background)
+- Created by `threading.Thread` in `parse_async()`
+- Reads file in batches (5,000 lines)
+- Writes to shared `log_entries` list (mutex-protected)
+- Calls progress callback with status and entries
 
-**Filter & Search Logic:**
-- Filters applied by creating index vector (`filtered_indices`) instead of copying entries
-- Search performed via simple substring match (`std::string::find()`)
-- Level filters: OR logic when any checkbox is checked, show all when none checked
+### Thread Safety
+- **Mutex**: `threading.Lock` protects `log_entries` list
+- **Signals**: `ParserSignals` (QObject with pyqtSignal) for thread-safe UI updates
+- **Stop Flag**: `threading.Event` for canceling parse
 
-**Platform Abstraction:**
-- Windows-specific: Console color enabling (main.cpp:32-45), clipboard via Win32 API
-- Linux: Clipboard via xclip/xsel fallback
-- Conditional compilation with `#ifdef _WIN32`
-
-### File Structure
-
-**C++ Version:**
+**Pattern:**
+```python
+with self._entries_lock:
+    # Access log_entries safely
+    entries_copy = self._log_entries.copy()
+# Use entries_copy outside lock
 ```
-src/
-  LogEntry.hpp       - Data structures (header-only)
-  LogParser.hpp      - Parser interface
-  LogParser.cpp      - Parser implementation
-  main.cpp           - FTXUI application and UI logic
-```
-
-**Python Version (Target Structure):**
-```
-src/
-  log_entry.py       - LogEntry dataclass and LogLevel enum
-  log_parser.py      - LogParser class with sync/async parsing
-  main.py            - PyQt6 application entry point
-  main_window.py     - Main window UI class
-venv/                - Python virtual environment (git-ignored)
-requirements.txt     - Python dependencies
-```
-
-### Threading Model
-
-**C++ Version:**
-- **Main thread**: Runs FTXUI event loop (`screen.Loop()`)
-- **Parser thread**: Created by `parseAsync()`, writes to shared `log_entries` vector
-- **Synchronization**: `std::mutex log_entries_mutex` protects shared state
-- **Event posting**: `screen.PostEvent(Event::Custom)` triggers UI refresh from parser thread
-
-**Python Version (Target):**
-- **Main thread**: Runs PyQt6 event loop (`QApplication.exec()`)
-- **Parser thread**: Created by `threading.Thread`, writes to shared list
-- **Synchronization**: `threading.Lock` protects shared log entries list
-- **Signal emission**: Use PyQt6 signals (custom `QObject` with `pyqtSignal`) to communicate from parser thread to GUI thread
-
-## Important Implementation Details
-
-1. **ASCII Field Separator Parsing**:
-   - C++: Use char value 31 (`const char FIELD_SEPARATOR = 31`)
-   - Python: Use `chr(31)` or `'\x1f'` for the field separator character
-   - This is the core parsing strategy for performance (simple `split()` vs complex regex)
-
-2. **Source Info Regex**: Pattern `R"((.*)\s*->\s*(.*)\(\):\s*(\d+))"` expects format: `filename -> function(): line_number`
-   - Python equivalent: `r"(.*)\s*->\s*(.*)\(\):\s*(\d+)"`
-
-3. **Configuration**: Last opened file path persisted to `logreader_config.txt` in working directory
-   - Python: Use same approach with simple text file or consider JSON for future extensibility
-
-4. **Debug Logging**:
-   - C++: LogParser writes to `logreader_debug.log`
-   - Python: Use Python's `logging` module with file handler
-
-5. **UI Layout**:
-   - C++: FTXUI Component Hierarchy with Container nesting
-   - Python: PyQt6 layouts (`QVBoxLayout`, `QHBoxLayout`) with widget composition
-
-6. **Thread Safety**: When modifying log display logic, always make a local copy of `log_entries` inside the lock to avoid holding the lock during rendering
-   - This pattern should be maintained in the Python version
 
 ## Common Development Tasks
 
 ### Adding a New Log Level
 
-1. Add enum value to `LogLevel` in src/LogEntry.hpp
-2. Add parsing case in LogParser.cpp (two locations: `parse()` and `parseChunk()`)
-3. Add display formatting in main.cpp: `LogLevelToString()` and `LogLevelToColor()`
-4. Add checkbox to search/filters pane in main.cpp
+1. Add to LogLevel enum in `python/log_entry.py`:
+   ```python
+   class LogLevel(Enum):
+       TRACE = "TRACE"  # New level
+   ```
+
+2. Add color in `python/log_table_model.py`:
+   ```python
+   LEVEL_COLORS = {
+       LogLevel.TRACE: QColor(128, 128, 255),  # Light blue
+   }
+   ```
+
+3. Add checkbox in `python/main_window.py` (`_create_search_filter_pane`):
+   ```python
+   for level in [LogLevel.TRACE, LogLevel.DEBUG, ...]:
+   ```
 
 ### Modifying the Log Format
 
-The field separator parsing logic is in two places (for sync and async):
-- LogParser.cpp:70-84 (synchronous `parse()`)
-- LogParser.cpp:229-239 (asynchronous `parseChunk()`)
+Update parsing in `python/log_parser.py`:
+- `_parse_line()` method (line ~234) - handles both sync and async
+- Field separator: `self.FIELD_SEPARATOR = chr(31)`
+- Source info regex: `r"(.*)\s*->\s*(.*)\(\):\s*(\d+)"`
 
-Both must be kept in sync.
+### Adding New Filters
 
-### Adding New Filter Types
+Update filtering logic in `python/main_window.py`:
+- `_apply_filters()` method (line ~458) - controls what's displayed
+- Uses filtered indices, not entry copying
+- OR logic for level filters, AND logic for search
 
-Filtering logic is duplicated in two places in main.cpp:
-1. Log renderer (main.cpp:354-372) - controls what's displayed
-2. Copy button handler (main.cpp:212-228) - controls what's copied
+### Updating the UI
 
-Keep both in sync when adding new filters.
+**Main window layout** (`python/main_window.py`):
+- `_setup_ui()` - Creates three-pane layout
+- `_create_log_display_pane()` - Center table
+- `_create_search_filter_pane()` - Bottom controls
+- `_setup_statusbar()` - Bottom status bar
+
+**Table model** (`python/log_table_model.py`):
+- `data()` - Returns cell content, colors, alignment
+- `headerData()` - Column headers
+- Column indices: COL_LINE_NUMBER=0, COL_TIMESTAMP=1, COL_LEVEL=2, COL_MESSAGE=3, COL_SOURCE=4
+
+### Adding Menu Items
+
+In `python/main_window.py`, `_setup_menubar()`:
+```python
+# Add to File menu
+action = QAction("&New Feature", self)
+action.setShortcut(QKeySequence("Ctrl+N"))
+action.triggered.connect(self._on_new_feature)
+file_menu.addAction(action)
+```
+
+## Performance Characteristics
+
+- **Parsing**: ~4,400 entries/sec on typical hardware
+- **Filtering**: <1ms for 1,000+ entries (uses index list, no copying)
+- **Memory**: Efficient with filtered indices (1 list vs 2 lists)
+- **UI Responsiveness**: Async parsing, batched updates, virtualized rendering
+
+## Configuration
+
+**File**: `logreader_config.txt` (user's working directory)
+
+**Format** (two lines):
+```
+/path/to/last/directory
+/path/to/last/directory/file.log
+```
+
+**Backward compatibility**: Single-line format (just file path) still works, directory extracted automatically.
 
 ## Dependencies
 
-### C++ Version
-- **FTXUI v5.0.0**: Fetched automatically via CMake FetchContent
-- **C++17 Standard Library**: `<filesystem>`, `<regex>`, `<thread>`, `<mutex>`, `<atomic>`
+**requirements.txt**:
+```
+PyQt6>=6.6.0
+```
 
-### Python Version (requirements.txt)
-- **PyQt6**: Main GUI framework (~50MB)
-- **PyQt6-Qt6**: Qt6 bindings (included with PyQt6)
-- Consider adding for future enhancements:
-  - `pyperclip`: Cross-platform clipboard support (alternative to PyQt6's clipboard)
-  - `watchdog`: For potential file watching features in Phase II
+**Standard Library**:
+- threading: Thread, Lock, Event
+- pathlib: Path (cross-platform paths)
+- dataclasses: @dataclass decorator
+- enum: Enum class
+- re: Regular expressions
+- typing: Type hints
 
-## Platform-Specific Notes
+## Testing
 
-### C++ Version
-- **Windows**: Requires ENABLE_VIRTUAL_TERMINAL_PROCESSING for console colors (handled in main.cpp)
-- **Windows**: Uses strcpy_s for clipboard operations
-- **Linux/macOS**: Clipboard requires xclip or xsel installed on system
+### Test Files
 
-### Python Version
-- **Cross-platform**: PyQt6 handles platform differences automatically
-- **Clipboard**: Use `QApplication.clipboard()` for native clipboard access on all platforms
-- **File paths**: Use `pathlib.Path` for cross-platform path handling
+**python/test_integration.py**
+- Full application test
+- Auto-loads helix.log or test_input.log
+- Simulates user workflow
 
-## Project Structure Notes
+**python/test_filter_search.py**
+- Filter and search logic tests
+- Performance benchmarks
+- Validates OR/AND logic
 
-- The C++ source remains in `src/` as the reference implementation
-- Python implementation should coexist in the same repository
-- Use `.gitignore` to exclude:
-  - `venv/` - Python virtual environment
-  - `__pycache__/` - Python bytecode
-  - `*.pyc` - Compiled Python files
-  - `.pytest_cache/` - If tests are added
-  - C++ build artifacts (`build/`, `out/`) are already ignored
+**python/test_parser.py**
+- Parser unit tests
+- Line number tracking
+- Edge cases
+
+**Other test files**:
+- test_data_structures.py - LogEntry tests
+- test_table_model.py - Qt model tests
+- test_main_window_with_data.py - UI with mock data
+- test_pyqt.py - PyQt6 installation check
+
+### Sample Log Files
+
+- **helix.log** (192 KB, 1,369 lines) - Real-world example
+- **test_input.log** (192 KB) - Duplicate for testing
+- **test_ascii_format.log** (162 bytes) - Minimal test
+- **test_new_format.log** (270 bytes) - Format validation
+
+## Platform Support
+
+**Tested**:
+- Windows 10/11 (Python 3.10.10, PyQt6 6.9.1)
+
+**Supported** (needs community testing):
+- macOS 10.14+ (Python 3.10+, PyQt6 6.6.0+)
+- Linux (Ubuntu 20.04+, Python 3.10+, PyQt6 6.6.0+)
+
+**Cross-platform handled by PyQt6**:
+- File dialogs (QFileDialog)
+- Clipboard (QApplication.clipboard())
+- Keyboard shortcuts (QKeySequence)
+- High DPI scaling (automatic)
+
+## Git Workflow
+
+**Branch**: master
+
+**Commit Style**:
+```
+Brief description (imperative mood)
+
+Detailed explanation of changes:
+- Feature 1
+- Feature 2
+
+Technical details, rationale, or migration notes if needed.
+```
+
+**Current commits**:
+```
+9d31582 Add About dialog and update window title
+d839f20 Initial commit - LogReader v1.0 (Python/PyQt6)
+```
+
+## Version Information
+
+**Current Version**: 1.0
+
+**Version Location**:
+- `python/main.py` - `__version__ = "1.0"`
+- Help → About LogReader dialog
+- CHANGELOG.md
+
+**Window Title**: "LogReader" (no version number)
+
+## Documentation
+
+**For Users**:
+- **README.md** - Quick start, features, installation
+- **GETTING_STARTED.md** - 5-minute setup guide
+- **USER_GUIDE.md** - Comprehensive manual (400+ lines)
+
+**For Developers**:
+- **CLAUDE.md** (this file) - Development guide
+- **logreader_improvements.md** - UI improvements spec (Changes A-D)
+- **logreader_port.md** - Original port specification (Phases 1-10)
+
+**For Release**:
+- **RELEASE_v1.0.md** - Release notes with feature comparison
+- **CHANGELOG.md** - Version history (Keep a Changelog format)
+- **LICENSE** - MIT License
+
+## Future Roadmap
+
+### v1.1 (Planned - Q2 2025)
+- Recent files list (File → Recent)
+- User preferences (font size, theme)
+- Dark mode support
+- Column sorting
+- Export filtered results
+
+### v1.2 (Planned - Q3 2025)
+- Live tail mode (watch file changes)
+- Bookmarks for important lines
+- Split view (compare two files)
+- Log level statistics
+- Timeline visualization
+
+### v2.0 (Planned - Q4 2025)
+- Plugin system
+- Custom parsers
+- Advanced search (regex, multi-field)
+- Session management
+- Log correlation features
+
+## Original C++ Version
+
+The original C++ terminal version (FTXUI-based) is now in a separate repository: `LogReader-Terminal`
+
+**Not actively maintained.** This Python version is recommended for:
+- Active development and bug fixes
+- New features
+- Better user experience
+- Easier installation and cross-platform support
+
+The C++ version remains available for terminal-only environments.
+
+## Contact & Contributing
+
+**Repository**: LogReader (Python/PyQt6 version)
+
+**Contributing**:
+- Report bugs via GitHub Issues
+- Feature requests via GitHub Discussions
+- Pull requests welcome (follow existing code style)
+- Test on macOS/Linux appreciated
+
+**Code Style**:
+- Follow PEP 8
+- Type hints preferred
+- Docstrings for all public methods
+- Comments for complex logic
+
+---
+
+**Happy coding!** This is a clean, well-documented Python project ready for enhancement and maintenance.
