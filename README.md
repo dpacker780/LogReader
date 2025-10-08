@@ -5,7 +5,7 @@
 
 **A modern, professional GUI log viewer built with Python and PyQt6.**
 
-Cross-platform log file viewer with dynamic tag system, real-time filtering, search, and navigation capabilities.
+LogReader is a cross-platform log file viewer with dynamic tag system, real-time filtering, search, and navigation capabilities. LogReader was created to address a specific challenge I ran into when working with AI tools, especially with a complex code-base that outputs a lot of log information during development.  Asking AI to parse through logs often leads to errors or misinterpretation, especially with temporal information, which led to bad assumptions, incorrect code-changes, chasing red-herrings. Since I code mainly in C++ and my logs for a running  app can generate 1000s of log entries I needed a simpler way. To address it I built this simple tool (using Anthropic's Claude), to quickly find relevant log entries from my log generator and be able to copy-paste them into the conversation.  It's useful beyond that obviously, anytime you want to read through large dev log files to understand what might be occuring.
 
 > **Note**: This is a Python rewrite of the original C++ terminal version. The C++ version is available in a separate repository for terminal-only environments.
 
