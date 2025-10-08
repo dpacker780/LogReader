@@ -84,8 +84,9 @@ class AppConfig:
             LogTag("INFO", "#00FF00", True, 1, "#FFFFFF", False, False),    # Green tag, white message, no count
             LogTag("WARN", "#FFFF00", True, 2, "#FFFFFF", False, True),     # Yellow tag, white message, show count
             LogTag("ERROR", "#FF0000", True, 3, "#FFFFFF", False, True),    # Red tag, white message, show count
-            LogTag("HEADER", "#0000FF", True, 4, "#FFFFFF", False, False),  # Blue tag, white message, no count
-            LogTag("FOOTER", "#0000FF", True, 5, "#FFFFFF", False, False),  # Blue tag, white message, no count
+            LogTag("HEADER", "#ff5500", True, 4, "#FFFFFF", False, False),  # Orange tag, white message, no count
+            LogTag("FOOTER", "#ff5500", True, 5, "#FFFFFF", False, False),  # Orange tag, white message, no count
+            LogTag("NOTICE", "#aa55ff", True, 6, "#FFFFFF", False, False),  # Purple tag, white message, no count
         ]
 
     def to_json(self) -> Dict[str, Any]:

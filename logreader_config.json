@@ -1,9 +1,9 @@
 {
   "version": "1.2",
-  "last_directory": "E:\\Coding\\CPP_Projects\\Helix\\build\\x64-debug",
-  "last_file": "E:/Coding/CPP_Projects/Helix/build/x64-debug/helix.log",
+  "last_directory": "E:\\Coding\\CPP_Projects\\LogReader",
+  "last_file": "E:/Coding/CPP_Projects/LogReader/helix.log",
   "recent_files": [
-    "E:\\Coding\\CPP_Projects\\Helix\\build\\x64-debug\\helix.log"
+    "E:\\Coding\\CPP_Projects\\LogReader\\helix.log"
   ],
   "max_recent_files": 10,
   "tags": [
@@ -45,30 +45,30 @@
     },
     {
       "name": "HEADER",
-      "color": "#aa55ff",
+      "color": "#ff5500",
       "enabled": true,
       "order": 4,
       "message_color": "#FFFFFF",
-      "message_match_tag": true,
+      "message_match_tag": false,
       "show_count": false
     },
     {
       "name": "FOOTER",
       "color": "#ff5500",
-      "enabled": false,
+      "enabled": true,
       "order": 5,
       "message_color": "#FFFFFF",
-      "message_match_tag": true,
+      "message_match_tag": false,
       "show_count": false
     },
     {
       "name": "NOTICE",
-      "color": "#808080",
+      "color": "#aa55ff",
       "enabled": true,
       "order": 6,
       "message_color": "#FFFFFF",
       "message_match_tag": false,
-      "show_count": true
+      "show_count": false
     }
   ],
   "window": {
