@@ -199,6 +199,14 @@ class LogTableModel(QAbstractTableModel):
             elif col == self.COL_LEVEL:
                 return Qt.AlignmentFlag.AlignCenter
 
+        # ToolTipRole: Show full message text on hover for Message column
+        elif role == Qt.ItemDataRole.ToolTipRole:
+            if col == self.COL_MESSAGE:
+                # Return full message text as tooltip with max width
+                # Use HTML with a div to control width (approximately 120 characters)
+                message = entry.message.replace('<', '&lt;').replace('>', '&gt;')  # Escape HTML
+                return f'<div style="max-width: 900px; white-space: pre-wrap;">{message}</div>'
+
         return QVariant()
 
     def headerData(

@@ -55,7 +55,7 @@
     {
       "name": "FOOTER",
       "color": "#ff5500",
-      "enabled": true,
+      "enabled": false,
       "order": 5,
       "message_color": "#FFFFFF",
       "message_match_tag": true,

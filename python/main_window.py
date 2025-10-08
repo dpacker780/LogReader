@@ -560,6 +560,10 @@ class MainWindow(QMainWindow):
         copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self)
         copy_shortcut.activated.connect(self._copy_selected_rows)
 
+        # Ctrl+M: Show message details for selected row
+        detail_shortcut = QShortcut(QKeySequence("Ctrl+M"), self)
+        detail_shortcut.activated.connect(self._show_message_details)
+
         # Esc: Clear search
         esc_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
         esc_shortcut.activated.connect(self._clear_search)
@@ -599,6 +603,33 @@ class MainWindow(QMainWindow):
         """Clear the search input."""
         self._search_input.clear()
         self._search_input.setFocus()
+
+    def _show_message_details(self):
+        """Show detailed message view for currently selected row."""
+        from python.message_detail_dialog import MessageDetailDialog
+
+        # Get selected row
+        selection_model = self._log_table.selectionModel()
+        if not selection_model.hasSelection():
+            self._update_status("No row selected - Select a row and press Ctrl+M")
+            return
+
+        selected_rows = selection_model.selectedRows()
+        if not selected_rows:
+            self._update_status("No row selected - Select a row and press Ctrl+M")
+            return
+
+        # Get the first selected row (if multiple are selected)
+        row = selected_rows[0].row()
+        entry = self._log_model.get_entry(row)
+
+        if entry is None:
+            self._update_status("Error: Could not get log entry")
+            return
+
+        # Show detail dialog
+        dialog = MessageDetailDialog(entry, self)
+        dialog.exec()
 
     def _on_search_changed(self, text: str):
         """Handle search text change."""
@@ -1028,6 +1059,7 @@ class MainWindow(QMainWindow):
         <tr><td><b>Ctrl+O</b></td><td>Open log file</td></tr>
         <tr><td><b>Ctrl+R</b></td><td>Reload current log file</td></tr>
         <tr><td><b>Ctrl+C</b></td><td>Copy selected rows to clipboard</td></tr>
+        <tr><td><b>Ctrl+M</b></td><td>Show full message details for selected row</td></tr>
         <tr><td><b>Ctrl+A</b></td><td>Select all visible rows</td></tr>
         <tr><td><b>Esc</b></td><td>Clear search input</td></tr>
         <tr><td><b>Ctrl+Q</b></td><td>Quit application</td></tr>
@@ -1039,9 +1071,10 @@ class MainWindow(QMainWindow):
         <tr><td><b>Ctrl+Click</b></td><td>Add/remove row from selection</td></tr>
         <tr><td><b>Shift+Click</b></td><td>Select range of rows</td></tr>
         <tr><td><b>Double-Click</b></td><td>Clear filters/search and show context around clicked line</td></tr>
+        <tr><td><b>Hover</b></td><td>Show full message text as tooltip (Message column only)</td></tr>
         </table>
 
-        <p><i>Tip: Use filters and search to find a specific log entry, then double-click to see surrounding context!</i></p>
+        <p><i>Tip: Hover over long messages to see the full text, or press Ctrl+M for a detailed view with copy functionality!</i></p>
         """
 
         msg.setText(help_text)
