@@ -47,7 +47,7 @@ class LogTableModel(QAbstractTableModel):
     COL_LINE = 6
 
     # Column headers
-    HEADERS = ["Line #", "Timestamp", "Level", "Message", "File", "Function", "Line"]
+    HEADERS = ["Entry #", "Timestamp", "Level", "Message", "File", "Function", "Line"]
 
     def __init__(self, parent=None):
         """

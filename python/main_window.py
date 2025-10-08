@@ -169,6 +169,9 @@ class MainWindow(QMainWindow):
         self._log_table.setEditTriggers(QTableView.EditTrigger.NoEditTriggers)
         self._log_table.verticalHeader().setVisible(False)
 
+        # Always show vertical scrollbar to prevent table jumping
+        self._log_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+
         # Make clicking anywhere on the row select the entire row
         self._log_table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         header = self._log_table.horizontalHeader()
@@ -176,20 +179,28 @@ class MainWindow(QMainWindow):
 
         # Set column widths
         header = self._log_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # Line #
+
+        # Fixed size columns
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)  # Entry #
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)  # Timestamp
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)  # Level
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)  # Message
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # File
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)  # Function
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)  # Line
 
-        self._log_table.setColumnWidth(0, 70)   # Line #
+        # Stretch column (Message takes all available space)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)  # Message
+
+        # Resizable columns (File, Function)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)  # File
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)  # Function
+
+        # Set initial widths for fixed and interactive columns
+        self._log_table.setColumnWidth(0, 70)   # Entry #
         self._log_table.setColumnWidth(1, 120)  # Timestamp
         self._log_table.setColumnWidth(2, 80)   # Level
-        self._log_table.setColumnWidth(4, 180)  # File
-        self._log_table.setColumnWidth(5, 150)  # Function
+        self._log_table.setColumnWidth(4, 180)  # File (resizable)
+        self._log_table.setColumnWidth(5, 150)  # Function (resizable)
         self._log_table.setColumnWidth(6, 60)   # Line
+        # Note: Message (column 3) will stretch automatically to fill remaining space
 
         # Set font for better readability
         table_font = QFont("Consolas", 9)
