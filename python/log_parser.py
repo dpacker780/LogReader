@@ -38,7 +38,8 @@ class LogParser:
     # Batch size for async parsing (lines per batch)
     BATCH_SIZE = 5000
 
-    # Regex pattern for parsing source info: "source_file -> function(): line_number"
+    # Regex pattern for parsing source info (legacy 4-field format): "source_file -> function(): line_number"
+    # Note: No longer used in new 6-field format
     SOURCE_INFO_PATTERN = re.compile(r'(.*)\s*->\s*(.*)\(\):\s*(\d+)')
 
     def __init__(self):
@@ -243,8 +244,8 @@ class LogParser:
         """
         Parse a single log line.
 
-        Expected format: timestamp<FS>LEVEL<FS>message<FS>source_info
-        Where source_info is: "source_file -> function(): line_number"
+        Expected format (new 6-field): timestamp<FS>LEVEL<FS>message<FS>file<FS>function<FS>line
+        Example: "16:29:40.318<FS>DEBUG<FS>Vulkan loader version<FS>Vulkan.cpp<FS>initVulkan<FS>92"
 
         Args:
             line: A single line from the log file
@@ -260,9 +261,9 @@ class LogParser:
         # Split by field separator
         fields = line.split(self.FIELD_SEPARATOR)
 
-        # Need at least 4 fields: timestamp, level, message, source_info
-        if len(fields) < 4:
-            logger.warning(f"Line {line_number}: Invalid format (expected 4 fields, got {len(fields)})")
+        # New format: Need exactly 6 fields: timestamp, level, message, file, function, line
+        if len(fields) < 6:
+            logger.warning(f"Line {line_number}: Invalid format (expected 6 fields, got {len(fields)})")
             logger.debug(f"  Content: {line[:100]}...")
             return None
 
@@ -270,7 +271,9 @@ class LogParser:
             timestamp = fields[0]
             level_str = fields[1].strip()
             message = fields[2]
-            source_info = fields[3]
+            source_file = fields[3].strip()
+            source_function = fields[4].strip()
+            source_line_str = fields[5].strip()
 
             # Parse log level (auto-create unknown tags)
             level = LogLevel.from_string(level_str)
@@ -279,16 +282,11 @@ class LogParser:
             # This happens silently during parsing - user can customize later
             ConfigManager.get_or_create_tag(level.value)
 
-            # Parse source info using regex
-            match = self.SOURCE_INFO_PATTERN.match(source_info)
-            if match:
-                source_file = match.group(1).strip()
-                source_function = match.group(2).strip()
-                source_line = int(match.group(3))
-            else:
-                # Fallback if source info doesn't match expected format
-                source_file = source_info
-                source_function = "unknown"
+            # Parse source line number
+            try:
+                source_line = int(source_line_str)
+            except ValueError:
+                logger.warning(f"Line {line_number}: Invalid line number '{source_line_str}'")
                 source_line = 0
 
             return LogEntry(

@@ -4,7 +4,7 @@ LogReader - Python/PyQt6 Version v1.2
 Main application entry point.
 Cross-platform log file viewer with filtering and search capabilities.
 
-Version: 1.2 - Tag Counts
+Version: 1.2 - File Filtering & Enhancements
 Date: 2025
 Author: LogReader Team
 License: MIT

@@ -42,10 +42,12 @@ class LogTableModel(QAbstractTableModel):
     COL_TIMESTAMP = 1
     COL_LEVEL = 2
     COL_MESSAGE = 3
-    COL_SOURCE = 4
+    COL_FILE = 4
+    COL_FUNCTION = 5
+    COL_LINE = 6
 
     # Column headers
-    HEADERS = ["Line #", "Timestamp", "Level", "Message", "Source"]
+    HEADERS = ["Line #", "Timestamp", "Level", "Message", "File", "Function", "Line"]
 
     def __init__(self, parent=None):
         """
@@ -168,8 +170,12 @@ class LogTableModel(QAbstractTableModel):
                 return entry.level.value
             elif col == self.COL_MESSAGE:
                 return entry.message
-            elif col == self.COL_SOURCE:
-                return entry.format_source_info()
+            elif col == self.COL_FILE:
+                return entry.source_file
+            elif col == self.COL_FUNCTION:
+                return entry.source_function
+            elif col == self.COL_LINE:
+                return str(entry.source_line)
 
         # ForegroundRole: Return the text color
         elif role == Qt.ItemDataRole.ForegroundRole:
@@ -192,9 +198,9 @@ class LogTableModel(QAbstractTableModel):
                     msg_color = tag.message_color
                 return QBrush(QColor(msg_color))
 
-        # TextAlignmentRole: Right-align line numbers, center-align level
+        # TextAlignmentRole: Right-align line numbers and source line, center-align level
         elif role == Qt.ItemDataRole.TextAlignmentRole:
-            if col == self.COL_LINE_NUMBER:
+            if col == self.COL_LINE_NUMBER or col == self.COL_LINE:
                 return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
             elif col == self.COL_LEVEL:
                 return Qt.AlignmentFlag.AlignCenter

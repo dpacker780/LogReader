@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLineEdit, QPushButton, QLabel, QTableView,
-    QCheckBox, QFrame, QSizePolicy, QHeaderView, QMessageBox, QFileDialog, QApplication, QDialog
+    QCheckBox, QFrame, QSizePolicy, QHeaderView, QMessageBox, QFileDialog, QApplication, QDialog, QComboBox
 )
 # QFrame already imported above
 from PyQt6.QtCore import Qt, QSize, QObject, pyqtSignal, QFileSystemWatcher
@@ -74,6 +74,7 @@ class MainWindow(QMainWindow):
         # UI components will be created in _setup_ui
         self._file_input: QLineEdit = None  # Hidden, used for internal tracking
         self._search_input: QLineEdit = None
+        self._file_filter_combo: QComboBox = None  # File filter dropdown
         self._jump_input: QLineEdit = None
         self._jump_button: QPushButton = None
         self._log_table: QTableView = None
@@ -179,12 +180,16 @@ class MainWindow(QMainWindow):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)  # Timestamp
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)  # Level
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)  # Message
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # Source
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)  # File
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)  # Function
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)  # Line
 
         self._log_table.setColumnWidth(0, 70)   # Line #
         self._log_table.setColumnWidth(1, 120)  # Timestamp
         self._log_table.setColumnWidth(2, 80)   # Level
-        self._log_table.setColumnWidth(4, 250)  # Source
+        self._log_table.setColumnWidth(4, 180)  # File
+        self._log_table.setColumnWidth(5, 150)  # Function
+        self._log_table.setColumnWidth(6, 60)   # Line
 
         # Set font for better readability
         table_font = QFont("Consolas", 9)
@@ -225,6 +230,19 @@ class MainWindow(QMainWindow):
         self._search_input.setPlaceholderText("search term")
         self._search_input.textChanged.connect(self._on_search_changed)
         search_row.addWidget(self._search_input, stretch=1)
+
+        # Spacer
+        search_row.addSpacing(20)
+
+        # File filter dropdown
+        file_label = QLabel("File:")
+        search_row.addWidget(file_label)
+
+        self._file_filter_combo = QComboBox()
+        self._file_filter_combo.setMinimumWidth(200)
+        self._file_filter_combo.addItem("All")
+        self._file_filter_combo.currentTextChanged.connect(self._on_file_filter_changed)
+        search_row.addWidget(self._file_filter_combo)
 
         # Spacer
         search_row.addSpacing(20)
@@ -641,18 +659,28 @@ class MainWindow(QMainWindow):
         # Apply combined filters and search
         self._apply_filters()
 
+    def _on_file_filter_changed(self, file_name: str):
+        """Handle file filter dropdown selection change."""
+        # Apply combined filters and search
+        self._apply_filters()
+
     def _apply_filters(self):
         """
-        Apply level filters and search to log entries.
+        Apply level filters, file filter, and search to log entries.
 
         This method filters the log entries based on:
         1. Level filters (checkboxes) - OR logic
-        2. Search text (substring match) - AND logic with filters
+        2. File filter (dropdown) - AND logic
+        3. Search text (substring match) - AND logic with filters
 
         Updates the table model with filtered indices for efficient display.
         """
         # Get current search term
         search_term = self._search_input.text().strip().lower()
+
+        # Get file filter selection
+        selected_file = self._file_filter_combo.currentText() if self._file_filter_combo else "All"
+        file_filter_active = (selected_file != "All")
 
         # Get which tag filters are active (by tag name)
         active_filters = set()
@@ -675,7 +703,12 @@ class MainWindow(QMainWindow):
                     if entry.level.value not in active_filters:
                         continue  # Skip this entry
 
-                # Apply search filter (AND logic - must also pass level filter)
+                # Apply file filter (AND logic - must also pass level filter)
+                if file_filter_active:
+                    if entry.source_file != selected_file:
+                        continue  # Skip this entry
+
+                # Apply search filter (AND logic - must also pass level filter and file filter)
                 if search_term:
                     if search_term not in entry.message.lower():
                         continue  # Skip this entry
@@ -696,6 +729,8 @@ class MainWindow(QMainWindow):
         if active_filters:
             # active_filters now contains tag name strings (not LogLevel objects)
             filter_desc.append(f"Levels: {', '.join(active_filters)}")
+        if file_filter_active:
+            filter_desc.append(f"File: '{selected_file}'")
         if search_term:
             filter_desc.append(f"Search: '{search_term}'")
 
@@ -704,6 +739,41 @@ class MainWindow(QMainWindow):
 
         # Update tag counts in filter checkboxes
         self._update_tag_counts()
+
+    def _populate_file_filter(self):
+        """Populate the file filter dropdown with unique source files from loaded entries."""
+        if not self._file_filter_combo:
+            return
+
+        # Get current selection to restore after repopulation
+        current_selection = self._file_filter_combo.currentText()
+
+        # Clear and reset dropdown
+        self._file_filter_combo.blockSignals(True)  # Prevent triggering filter while populating
+        self._file_filter_combo.clear()
+        self._file_filter_combo.addItem("All")
+
+        # Extract unique file names from entries
+        unique_files = set()
+        with self._entries_lock:
+            for entry in self._log_entries:
+                if entry.source_file:
+                    unique_files.add(entry.source_file)
+
+        # Add files alphabetically sorted
+        for file_name in sorted(unique_files):
+            self._file_filter_combo.addItem(file_name)
+
+        # Restore previous selection if it still exists, otherwise select "All"
+        index = self._file_filter_combo.findText(current_selection)
+        if index >= 0:
+            self._file_filter_combo.setCurrentIndex(index)
+        else:
+            self._file_filter_combo.setCurrentIndex(0)  # "All"
+
+        self._file_filter_combo.blockSignals(False)
+
+        print(f"[FILE FILTER] Populated with {len(unique_files)} files")
 
     def _update_tag_counts(self):
         """
@@ -920,6 +990,10 @@ class MainWindow(QMainWindow):
 
         # Update table model
         self._log_model.set_entries(entries)
+
+        # Populate file filter dropdown when parsing completes
+        if status.startswith("Complete:"):
+            self._populate_file_filter()
 
         # Apply any active filters
         self._apply_filters()

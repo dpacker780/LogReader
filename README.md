@@ -1,4 +1,4 @@
-# LogReader v1.1
+# LogReader v1.2
 
 
 ![LogReader UI Screenshot](https://github.com/dpacker780/LogReader/blob/master/logreader_UI.png)
@@ -22,30 +22,51 @@ Cross-platform log file viewer with dynamic tag system, real-time filtering, sea
 - **Row Selection**: Select single or multiple rows with Ctrl+C to copy
 - **Keyboard Shortcuts**: Efficient workflow with Ctrl+O, Ctrl+R, Ctrl+C, Esc, Ctrl+Q
 
-### v1.1 New Features
-- **🎨 Dynamic Tag System**: Fully customizable log level tags
-  - Tag Editor (`Help → Tag Editor`) for complete tag management
-  - Add, edit, remove, and reset tags
-  - Customize tag colors and message colors
-  - "Match Tag Color" option for messages to stand out
-  - Auto-discovery of unknown tags with default gray color
+### v1.2 New Features
+- **📊 Tag Count Display**: Optional entry counts next to filter checkboxes
+  - Per-tag "Show Count" toggle in Tag Editor (e.g., `WARN [42]`, `ERROR [5]`)
+  - Default: WARN and ERROR show counts, others don't
+  - Counts update dynamically with search/filters
+  - Light green count text for readability
 
-- **🔍 Context Navigation**: Double-click any filtered entry to clear filters and see surrounding context
+- **📂 File Filtering**: Filter logs by source file
+  - Dropdown between Search and Jump to Line
+  - Auto-populated with files from current log
+  - Alphabetically sorted with "All" option
+  - Combines with level filters and search
 
-- **⚡ Dynamic Filtering**: Filter checkboxes adapt to your tag configuration
-  - Supports unlimited custom tags
-  - No more hardcoded DEBUG/INFO/WARN/ERROR limits
-  - OR logic: Check multiple tags to show all matching entries
+- **🔍 Message Detail View**: View long messages easily
+  - Hover tooltips (120-char width) for quick viewing
+  - Ctrl+M for detail dialog with copy functionality
+  - Perfect for very long log messages
 
-- **📁 JSON Configuration**: Structured, extensible config format
-  - Auto-migration from v1.0 text format
-  - Stores tags, window settings, and preferences
-  - Backward compatible
+- **📁 Recent Files**: Quick access to recently opened files
+  - File → Recent Files menu (last 10 files)
+  - Auto-loads last file on startup
+  - Checkmark on currently open file
+  - "Clear Recent Files" option
+
+- **🔔 File Change Notification**: Know when log file updates
+  - Red status bar notification when file changes
+  - Manual reload with Ctrl+R
+  - Monitors current file with QFileSystemWatcher
+
+- **🗂️ Separate Source Columns**: Better organization
+  - File, Function, Line as separate columns
+  - Easier to scan and filter
+  - New 6-field log format support
+
+### v1.1 Features
+- **🎨 Dynamic Tag System**: Fully customizable log level tags with Tag Editor
+- **🔍 Context Navigation**: Double-click to clear filters and see surrounding context
+- **⚡ Dynamic Filtering**: Unlimited custom tags with OR logic
+- **📁 JSON Configuration**: Structured config with auto-migration
 
 ### Search and Filter
-- **Real-time Filtering**: Filter by any log levels without re-parsing
+- **Real-time Filtering**: Filter by log levels and source files without re-parsing
+- **File Filtering**: Dropdown to show only entries from specific source files
 - **Instant Search**: Search through log messages with live results
-- **Combined Logic**: Filters use OR logic, search uses AND logic with filters
+- **Combined Logic**: Level filters use OR logic, file filter and search use AND logic
 - **Quick Clear**: Esc to clear search, double-click to clear all filters
 
 ## Quick Start
@@ -140,11 +161,13 @@ python python/main.py
 | **Open file dialog** | Ctrl+O |
 | **Reload current file** | Ctrl+R |
 | **Copy selected rows** | Ctrl+C |
+| **Show message details** | Ctrl+M |
 | **Select all visible** | Ctrl+A |
 | **Clear search** | Esc |
 | **Jump to line** | Enter (in Jump field) |
 | **Quit application** | Ctrl+Q |
 | **Show context** | Double-click entry |
+| **View long messages** | Hover over Message column |
 
 #### Status Bar Information
 
@@ -158,28 +181,32 @@ The status bar at the bottom shows (with visual separators):
 
 The parser expects log entries using ASCII field separators (character 31):
 
+**v1.2+ Format (6 fields - separate file, function, line):**
 ```
-timestamp<FS>LEVEL<FS>message<FS>source_file -> function(): line_number
+timestamp<FS>LEVEL<FS>message<FS>source_file<FS>function<FS>line_number
 ```
 
-Where `<FS>` represents the ASCII field separator (char 31).
+Where `<FS>` represents the ASCII field separator (char 31, 0x1F).
 
 **Example:**
 ```
-16:29:40.318<FS>DEBUG<FS>Vulkan loader version: 1.4.304<FS>Vulkan.cpp -> initVulkan(): 92
-16:29:40.587<FS>INFO<FS>Supported instance extensions:<FS>Vulkan.cpp -> initVulkan(): 106
-16:29:40.629<FS>ERROR<FS>Failed to create surface<FS>Vulkan.cpp -> createSurface(): 156
+16:29:40.318<FS>DEBUG<FS>Vulkan loader version: 1.4.304<FS>Vulkan.cpp<FS>initVulkan<FS>92
+16:29:40.587<FS>INFO<FS>Supported instance extensions:<FS>Vulkan.cpp<FS>initVulkan<FS>106
+16:29:40.629<FS>ERROR<FS>Failed to create surface<FS>Vulkan.cpp<FS>createSurface<FS>156
 ```
+
+The 6-field format enables file filtering and separate column display.
 
 ### Architecture
 
-- **python/main.py** - Application entry point (v1.1)
-- **python/main_window.py** - Main UI window (PyQt6, 800+ lines)
-- **python/log_parser.py** - Async log file parser with batching
-- **python/log_table_model.py** - Qt Model/View for efficient display
+- **python/main.py** - Application entry point (v1.2)
+- **python/main_window.py** - Main UI window (PyQt6, 1000+ lines)
+- **python/log_parser.py** - Async log file parser with 6-field format support
+- **python/log_table_model.py** - Qt Model/View with separate File/Function/Line columns
 - **python/log_entry.py** - Data models (LogEntry, LogLevel)
-- **python/config.py** - JSON configuration with tag management (v1.1)
-- **python/tag_editor_dialog.py** - Tag Editor UI (v1.1)
+- **python/config.py** - JSON configuration with tag management and recent files (v1.2)
+- **python/tag_editor_dialog.py** - Tag Editor UI with Show Count toggle (v1.2)
+- **python/message_detail_dialog.py** - Message detail viewer (v1.2)
 
 ### Performance
 
@@ -245,9 +272,11 @@ Auto-discovered unknown tags appear in gray
 
 ```json
 {
-  "version": "1.1",
+  "version": "1.2",
   "last_directory": "/path/to/logs",
   "last_file": "/path/to/file.log",
+  "recent_files": ["/path/to/file1.log", "/path/to/file2.log"],
+  "max_recent_files": 10,
   "tags": [
     {
       "name": "DEBUG",
@@ -255,11 +284,21 @@ Auto-discovered unknown tags appear in gray
       "enabled": true,
       "order": 0,
       "message_color": "#FFFFFF",
-      "message_match_tag": false
+      "message_match_tag": false,
+      "show_count": false
+    },
+    {
+      "name": "WARN",
+      "color": "#FFFF00",
+      "enabled": true,
+      "order": 2,
+      "message_color": "#FFFFFF",
+      "message_match_tag": false,
+      "show_count": true
     }
   ],
-  "window": { "width": 1200, "height": 800 },
-  "preferences": { "font_size": 9, "theme": "light" }
+  "window": { "width": 1200, "height": 800, "maximized": false },
+  "preferences": { "font_size": 9, "font_family": "Consolas", "theme": "light" }
 }
 ```
 
@@ -267,15 +306,16 @@ Auto-discovered unknown tags appear in gray
 
 ## Roadmap
 
-### Future Enhancements (v1.2+)
+### Future Enhancements (v1.3+)
 
-- Recent files list (File → Recent)
+- Function name filtering (dropdown like file filter)
 - Tag Icons (in addition to colors)
-- Bookmarks for important lines (Navigate (N)ext / (P)revious))
+- Bookmarks for important lines (Navigate (N)ext / (P)revious)
 - Export filtered results
-- Custom column ordering
-- Live tail mode (watch file for changes) and notifier
-- Log level statistics
+- Custom column ordering and widths
+- Configurable log format (user-defined field mappings)
+- Log level statistics panel
+- Dark theme support
 
 ---
 
@@ -292,6 +332,17 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 ## Version History
+
+### v1.2 (File Filtering & Enhancements) - January 2025
+- **File Filtering**: Dropdown to filter logs by source file
+- **Separate Source Columns**: File, Function, Line as individual columns
+- **Tag Counts**: Optional entry counts next to filter checkboxes
+- **Message Detail View**: Hover tooltips and Ctrl+M detail dialog
+- **Recent Files**: Auto-load last file, File → Recent Files menu
+- **File Change Notification**: Red status when file changes externally
+- **6-Field Log Format**: Separate file, function, line fields
+- **Enhanced Tag Editor**: Filter checkbox and Show Count toggle
+- **Performance**: Tag count updates, file filter caching
 
 ### v1.1 (Dynamic Tags) - January 2025
 - **Dynamic Tag System**: Fully customizable log level tags
@@ -321,6 +372,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Documentation
 
+- **[RELEASE_v1.2.md](RELEASE_v1.2.md)** - Detailed v1.2 release notes
 - **[RELEASE_v1.1.md](RELEASE_v1.1.md)** - Detailed v1.1 release notes
 - **[RELEASE_v1.0.md](RELEASE_v1.0.md)** - v1.0 release notes
 

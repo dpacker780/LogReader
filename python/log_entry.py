@@ -118,13 +118,13 @@ class LogEntry:
         Format the source information as a string.
 
         Returns:
-            Formatted string: "source_file:source_line"
+            Formatted string: "source_file::source_function:source_line"
 
         Example:
             >>> entry.format_source_info()
-            "Vulkan.cpp:92"
+            "Vulkan.cpp::initVulkan:92"
         """
-        return f"{self.source_file}:{self.source_line}"
+        return f"{self.source_file}::{self.source_function}:{self.source_line}"
 
     def format_full_source_info(self) -> str:
         """
@@ -148,6 +148,6 @@ class LogEntry:
 
         Example:
             >>> entry.to_clipboard_format()
-            "[16:29:40.318][DEBUG]: Vulkan loader version: 1.4.304 | Vulkan.cpp:92"
+            "[16:29:40.318][DEBUG]: Vulkan loader version: 1.4.304 | Vulkan.cpp::initVulkan:92"
         """
         return f"[{self.timestamp}][{self.level.value:>6}]: {self.message} | {self.format_source_info()}"
