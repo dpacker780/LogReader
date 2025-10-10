@@ -1,4 +1,4 @@
-# LogReader v1.2
+# LogReader v1.2.1
 
 
 ![LogReader UI Screenshot](https://github.com/dpacker780/LogReader/blob/master/logreader_UI.png)
@@ -22,7 +22,17 @@ Cross-platform log file viewer with dynamic tag system, real-time filtering, sea
 - **Row Selection**: Select single or multiple rows with Ctrl+C to copy
 - **Keyboard Shortcuts**: Efficient workflow with Ctrl+O, Ctrl+R, Ctrl+C, Esc, Ctrl+Q
 
-### v1.2 New Features
+### v1.2.1 New Features
+- **🔄 Live Update Mode**: Real-time log monitoring (NEW!)
+  - Toggle: `Options → Live Update Mode`
+  - Status indicator: `🔄 Live` (green) or `⏸ Manual` (gray)
+  - Auto-detects appends vs. file replacement
+  - Smart debouncing (1s delay prevents UI freeze)
+  - Max 10,000 lines per update (configurable)
+  - Smart auto-scroll (only if at bottom)
+  - Perfect for iterative testing and long-running apps
+
+### v1.2 Features
 - **📊 Tag Count Display**: Optional entry counts next to filter checkboxes
   - Per-tag "Show Count" toggle in Tag Editor (e.g., `WARN [42]`, `ERROR [5]`)
   - Default: WARN and ERROR show counts, others don't
@@ -47,8 +57,8 @@ Cross-platform log file viewer with dynamic tag system, real-time filtering, sea
   - "Clear Recent Files" option
 
 - **🔔 File Change Notification**: Know when log file updates
-  - Red status bar notification when file changes
-  - Manual reload with Ctrl+R
+  - Red status bar notification when file changes (manual mode)
+  - Auto-reload with Live Update Mode enabled
   - Monitors current file with QFileSystemWatcher
 
 - **🗂️ Separate Source Columns**: Better organization
@@ -169,13 +179,34 @@ python python/main.py
 | **Show context** | Double-click entry |
 | **View long messages** | Hover over Message column |
 
+#### Live Update Mode (v1.2.1)
+
+**Enable live monitoring** for real-time log updates:
+
+1. **Enable**: `Options → Live Update Mode` (or use keyboard shortcut)
+2. **Status Indicator**: Watch for `🔄 Live` (green) in status bar
+3. **Auto-Updates**: File changes automatically reload new entries
+4. **Smart Scrolling**: Auto-scrolls to bottom only if you're already there
+
+**Use Cases**:
+- **Iterative Testing**: Run app repeatedly, watch logs update automatically
+- **Long-Running Apps**: Monitor server logs in real-time without manual reload
+- **Development**: See new log entries as they're written
+
+**How It Works**:
+- Detects **appends** (parses only new lines) - Fast!
+- Detects **replacements** (full reload) - When log rotates
+- **1-second debounce** prevents rapid-fire updates
+- **10,000 line limit** per update prevents freezing
+- Press `Ctrl+R` to manually reload all entries if limit hit
+
 #### Status Bar Information
 
 The status bar at the bottom shows (with visual separators):
 - **Status**: Current operation (Ready, Parsing, Complete, etc.)
 - **File**: Current file name
 - **Entries**: Total count (and visible count when filtered)
-- **Line Info**: Reserved for future features
+- **Live Mode**: `🔄 Live` (active) or `⏸ Manual` (inactive)
 
 ### Log Format
 
@@ -199,9 +230,10 @@ The 6-field format enables file filtering and separate column display.
 
 ### Architecture
 
-- **python/main.py** - Application entry point (v1.2)
-- **python/main_window.py** - Main UI window (PyQt6, 1000+ lines)
-- **python/log_parser.py** - Async log file parser with 6-field format support
+- **python/main.py** - Application entry point (v1.2.1)
+- **python/main_window.py** - Main UI window (PyQt6, 1400+ lines)
+- **python/log_parser.py** - Async log file parser with append-only mode (v1.2.1)
+- **python/live_log_monitor.py** - Live update monitoring and change detection (v1.2.1)
 - **python/log_table_model.py** - Qt Model/View with separate File/Function/Line columns
 - **python/log_entry.py** - Data models (LogEntry, LogLevel)
 - **python/config.py** - JSON configuration with tag management and recent files (v1.2)
@@ -215,6 +247,9 @@ The 6-field format enables file filtering and separate column display.
 - **Async Design**: UI remains responsive during large file loads
 - **Memory Efficient**: Uses filtered indices instead of copying entries
 - **Config Load**: <1ms (JSON parsing)
+- **Live Append**: File position seeking (only parses new lines)
+- **Debounce**: 1s delay prevents rapid-fire updates
+- **Max Append**: 10,000 lines per update (prevents UI freeze)
 
 ---
 
@@ -308,6 +343,8 @@ Auto-discovered unknown tags appear in gray
 
 ### Future Enhancements (v1.3+)
 
+- Configurable live update settings (debounce delay, max lines)
+- Progressive loading for large appends (queue-based)
 - Function name filtering (dropdown like file filter)
 - Tag Icons (in addition to colors)
 - Bookmarks for important lines (Navigate (N)ext / (P)revious)
@@ -332,6 +369,15 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 ## Version History
+
+### v1.2.1 (Live Update Mode) - January 2025
+- **Live Update Mode**: Real-time log monitoring with auto-reload
+- **Smart Change Detection**: Distinguishes appends from file replacements
+- **Performance Fixes**: Debouncing (1s delay) and max lines limit (10k)
+- **Smart Auto-Scroll**: Only scrolls if user is at bottom
+- **Spurious Notification Fix**: mtime check prevents false positives
+- **Status Indicator**: Live mode indicator in status bar
+- **Documentation**: LIVE_UPDATE_FEATURE.md and LIVE_UPDATE_FIXES.md
 
 ### v1.2 (File Filtering & Enhancements) - January 2025
 - **File Filtering**: Dropdown to filter logs by source file
@@ -372,6 +418,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Documentation
 
+- **[LIVE_UPDATE_FEATURE.md](LIVE_UPDATE_FEATURE.md)** - Live update implementation guide
+- **[LIVE_UPDATE_FIXES.md](LIVE_UPDATE_FIXES.md)** - Performance fixes and optimization
 - **[RELEASE_v1.2.md](RELEASE_v1.2.md)** - Detailed v1.2 release notes
 - **[RELEASE_v1.1.md](RELEASE_v1.1.md)** - Detailed v1.1 release notes
 - **[RELEASE_v1.0.md](RELEASE_v1.0.md)** - v1.0 release notes
