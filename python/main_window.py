@@ -19,13 +19,14 @@ from PyQt6.QtWidgets import (
     QCheckBox, QFrame, QSizePolicy, QHeaderView, QMessageBox, QFileDialog, QApplication, QDialog, QComboBox
 )
 # QFrame already imported above
-from PyQt6.QtCore import Qt, QSize, QObject, pyqtSignal, QFileSystemWatcher
+from PyQt6.QtCore import Qt, QSize, QObject, pyqtSignal, QFileSystemWatcher, QTimer
 from PyQt6.QtGui import QFont, QColor, QKeySequence, QShortcut, QAction
 
 from python.log_entry import LogLevel, LogEntry
 from python.log_table_model import LogTableModel
 from python.log_parser import LogParser
 from python.config import ConfigManager
+from python.live_log_monitor import LiveLogMonitor, ChangeType
 
 
 class ParserSignals(QObject):
@@ -66,10 +67,26 @@ class MainWindow(QMainWindow):
         self._file_watcher = QFileSystemWatcher()
         self._file_watcher.fileChanged.connect(self._on_file_changed)
 
+        # Live log monitoring
+        self._live_monitor = LiveLogMonitor()
+
+        # Polling timer (backup for file watching on network drives)
+        self._poll_timer = QTimer()
+        self._poll_timer.timeout.connect(self._on_poll_timer)
+        self._poll_timer.setInterval(2000)  # Poll every 2 seconds
+
+        # Debounce timer for file changes (prevents rapid update spam)
+        self._debounce_timer = QTimer()
+        self._debounce_timer.setSingleShot(True)  # Fire only once
+        self._debounce_timer.timeout.connect(self._process_pending_file_change)
+        self._pending_file_change_path: str = ""
+
         # Parser and signals
         self._parser = LogParser()
         self._parser_signals = ParserSignals()
         self._parser_signals.progress_update.connect(self._on_parser_progress)
+        self._parser_signals_append = ParserSignals()
+        self._parser_signals_append.progress_update.connect(self._on_parser_append_progress)
 
         # UI components will be created in _setup_ui
         self._file_input: QLineEdit = None  # Hidden, used for internal tracking
@@ -88,6 +105,7 @@ class MainWindow(QMainWindow):
         self._status_file: QLabel = None
         self._status_entries: QLabel = None
         self._status_line: QLabel = None
+        self._status_live_indicator: QLabel = None
 
         # Setup the user interface
         self._setup_ui()
@@ -441,6 +459,8 @@ class MainWindow(QMainWindow):
         """
         Handle file change notification from QFileSystemWatcher.
 
+        Uses debouncing to prevent rapid-fire updates from freezing the UI.
+
         Args:
             path: Path to the file that changed
         """
@@ -451,15 +471,78 @@ class MainWindow(QMainWindow):
             # No need to show notification for deleted files
             return
 
-        # Show red notification in status bar
-        self._show_file_change_notification()
-        print(f"[FILE WATCHER] File changed: {path}")
-
         # Note: QFileSystemWatcher may stop watching after some editors save files
         # (they delete and recreate). Re-add to watcher if needed.
         if path not in self._file_watcher.files():
             self._file_watcher.addPath(path)
             print(f"[FILE WATCHER] Re-added file to watch: {path}")
+
+        print(f"[FILE WATCHER] File changed: {path}")
+
+        # If live mode is disabled, just show notification
+        if not self._live_monitor.is_live_mode():
+            self._show_file_change_notification()
+            return
+
+        # Check if parser is already running (prevent overlapping parses)
+        if self._parser.is_parsing():
+            print(f"[FILE WATCHER] Parser already running - ignoring change")
+            return
+
+        # Debounce: Store the path and start/restart timer
+        # This delays processing until 1 second after the last change
+        self._pending_file_change_path = path
+        self._debounce_timer.stop()  # Cancel any pending timer
+        self._debounce_timer.start(1000)  # Wait 1 second (1000ms)
+        print(f"[DEBOUNCE] Scheduled update in 1 second")
+
+    def _process_pending_file_change(self):
+        """
+        Process a pending file change after debounce timer expires.
+
+        This is called 1 second after the last file change notification,
+        preventing rapid-fire updates from freezing the UI.
+        """
+        path = self._pending_file_change_path
+        if not path:
+            return
+
+        print(f"[DEBOUNCE] Processing delayed file change: {path}")
+
+        # Double-check file still exists
+        if not Path(path).exists():
+            print(f"[DEBOUNCE] File no longer exists: {path}")
+            return
+
+        # Detect change type
+        change_type = self._live_monitor.detect_change_type(path)
+
+        if change_type == ChangeType.NO_CHANGE:
+            print(f"[DEBOUNCE] No actual change detected (spurious notification)")
+            return
+
+        elif change_type == ChangeType.NEW_FILE:
+            print(f"[DEBOUNCE] New file detected - performing full reload")
+            self._update_status("🔄 File replaced - reloading...")
+            # Full reload (existing behavior)
+            self._on_reload_clicked()
+
+        elif change_type == ChangeType.APPEND:
+            print(f"[DEBOUNCE] Append detected - parsing new entries")
+            self._update_status("🔄 Loading new entries...")
+
+            # Parse only appended content
+            start_pos = self._live_monitor.get_append_start_position()
+            start_line = self._live_monitor.get_next_line_number()
+
+            # Use async append parsing
+            def append_callback(status: str, new_entries: List[LogEntry]):
+                # Make a copy for thread safety
+                entries_copy = new_entries.copy()
+                # Emit signal to UI thread
+                self._parser_signals_append.progress_update.emit(status, entries_copy)
+
+            self._parser.parse_append_async(path, start_pos, start_line, append_callback)
 
     def _show_file_change_notification(self):
         """Show red notification that file has been modified."""
@@ -516,6 +599,20 @@ class MainWindow(QMainWindow):
         self._status_entries.setContentsMargins(10, 0, 10, 0)
         statusbar.addPermanentWidget(self._status_entries)
 
+        # Separator frame
+        separator3 = QFrame()
+        separator3.setFrameShape(QFrame.Shape.VLine)
+        separator3.setFrameShadow(QFrame.Shadow.Sunken)
+        statusbar.addPermanentWidget(separator3)
+
+        # Live mode indicator (permanent widget)
+        self._status_live_indicator = QLabel("⏸ Manual")
+        self._status_live_indicator.setMinimumWidth(80)
+        self._status_live_indicator.setContentsMargins(10, 0, 10, 0)
+        self._status_live_indicator.setStyleSheet("QLabel { color: #808080; }")  # Gray when inactive
+        self._status_live_indicator.setToolTip("Live update mode (Options → Live Update Mode)")
+        statusbar.addPermanentWidget(self._status_live_indicator)
+
         # Right: Line info (permanent widget, initially hidden)
         self._status_line = QLabel("")
         self._status_line.setMinimumWidth(100)
@@ -557,6 +654,17 @@ class MainWindow(QMainWindow):
         quit_action.setStatusTip("Exit the application")
         quit_action.triggered.connect(self.close)
         file_menu.addAction(quit_action)
+
+        # Options Menu
+        options_menu = menubar.addMenu("&Options")
+
+        # Options -> Live Update Mode
+        self._live_mode_action = QAction("&Live Update Mode", self)
+        self._live_mode_action.setCheckable(True)
+        self._live_mode_action.setChecked(False)
+        self._live_mode_action.setStatusTip("Automatically update log view when file changes")
+        self._live_mode_action.triggered.connect(self._on_live_mode_toggled)
+        options_menu.addAction(self._live_mode_action)
 
         # Help Menu
         help_menu = menubar.addMenu("&Help")
@@ -1013,6 +1121,12 @@ class MainWindow(QMainWindow):
         if status.startswith("Complete:"):
             self._update_status(status)
 
+            # Initialize live monitor state after successful parse
+            self._live_monitor.initialize_file_state(
+                self._current_file_path,
+                len(entries)
+            )
+
         print(f"[PARSER] {status}")
 
     def _update_recent_files_menu(self):
@@ -1116,6 +1230,32 @@ class MainWindow(QMainWindow):
             ConfigManager.clear_recent_files()
             self._update_status("Recent files cleared")
 
+    def _on_live_mode_toggled(self, checked: bool):
+        """
+        Handle Live Update Mode toggle from Options menu.
+
+        Args:
+            checked: True if live mode was enabled, False if disabled
+        """
+        self._live_monitor.enable_live_mode(checked)
+
+        if checked:
+            self._update_status("🔄 Live update mode enabled")
+            print("[LIVE MODE] Enabled - will auto-update on file changes")
+            # Start polling timer as backup
+            if self._current_file_path:
+                self._poll_timer.start()
+                print("[POLL TIMER] Started (2s interval)")
+        else:
+            self._update_status("Live update mode disabled")
+            print("[LIVE MODE] Disabled - manual reload required (Ctrl+R)")
+            # Stop polling timer
+            self._poll_timer.stop()
+            print("[POLL TIMER] Stopped")
+
+        # Update status bar live indicator
+        self._update_live_mode_indicator()
+
     def _show_tag_editor(self):
         """Show Tag Editor dialog."""
         from python.tag_editor_dialog import TagEditorDialog
@@ -1202,6 +1342,93 @@ class MainWindow(QMainWindow):
         msg.setText(about_text)
         msg.setStandardButtons(QMessageBox.StandardButton.Ok)
         msg.exec()
+
+    def _update_live_mode_indicator(self):
+        """Update the live mode indicator in the status bar."""
+        if self._live_monitor.is_live_mode():
+            # Show active indicator
+            self._status_live_indicator.setText("🔄 Live")
+            self._status_live_indicator.setStyleSheet("QLabel { color: #00FF00; font-weight: bold; }")  # Bright green
+            self._status_live_indicator.setToolTip("Live update mode ACTIVE - Auto-reloading on file changes")
+        else:
+            # Show inactive indicator
+            self._status_live_indicator.setText("⏸ Manual")
+            self._status_live_indicator.setStyleSheet("QLabel { color: #808080; }")  # Gray
+            self._status_live_indicator.setToolTip("Live update mode OFF - Use Ctrl+R to reload manually")
+
+    def _on_parser_append_progress(self, status: str, new_entries: List[LogEntry]):
+        """
+        Handle append parser progress update in the UI thread.
+
+        This is called via Qt signal when new log entries are parsed in append mode.
+
+        Args:
+            status: Status message from parser
+            new_entries: List of newly parsed entries to append
+        """
+        # Update status message
+        self._update_status(status)
+
+        if not new_entries:
+            return
+
+        # Append new entries to existing entries (thread-safe)
+        with self._entries_lock:
+            self._log_entries.extend(new_entries)
+            total_entries = len(self._log_entries)
+
+        # Update table model with all entries
+        self._log_model.set_entries(self._log_entries)
+
+        # Apply filters to include new entries
+        self._apply_filters()
+
+        # Update file state in live monitor
+        if status.startswith("Complete:") or status.startswith("Partial:"):
+            stat = Path(self._current_file_path).stat()
+            self._live_monitor.update_state(stat.st_size, total_entries, stat.st_mtime)
+
+            # Auto-scroll to bottom if user was already at bottom
+            self._auto_scroll_if_at_bottom()
+
+        print(f"[APPEND] {status} - Total entries: {total_entries}")
+
+    def _auto_scroll_if_at_bottom(self):
+        """
+        Auto-scroll to bottom if user was already scrolled to the bottom.
+
+        This implements smart auto-scroll behavior for live updates.
+        """
+        # Get scrollbar
+        scrollbar = self._log_table.verticalScrollBar()
+
+        # Check if user is near the bottom (within 50 pixels)
+        # This allows for some slack in case filtering changed the view
+        at_bottom = scrollbar.value() >= scrollbar.maximum() - 50
+
+        if at_bottom:
+            # Scroll to the very bottom
+            scrollbar.setValue(scrollbar.maximum())
+            print("[AUTO-SCROLL] Scrolled to bottom (new entries)")
+
+    def _on_poll_timer(self):
+        """
+        Polling timer handler (backup for file watching).
+
+        This timer polls the file periodically to catch changes that
+        QFileSystemWatcher might miss (e.g., on network drives).
+        """
+        # Only poll if live mode is active and we have a file loaded
+        if not self._live_monitor.is_live_mode() or not self._current_file_path:
+            return
+
+        # Check if parser is already running (avoid overlapping parses)
+        if self._parser.is_parsing():
+            return
+
+        # Simulate a file change event
+        # The _on_file_changed handler will detect if there's actually a change
+        self._on_file_changed(self._current_file_path)
 
     def closeEvent(self, event):
         """

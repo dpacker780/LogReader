@@ -38,6 +38,9 @@ class LogParser:
     # Batch size for async parsing (lines per batch)
     BATCH_SIZE = 5000
 
+    # Maximum lines to parse per append operation (prevents UI freeze on huge appends)
+    MAX_APPEND_LINES = 10000
+
     # Regex pattern for parsing source info (legacy 4-field format): "source_file -> function(): line_number"
     # Note: No longer used in new 6-field format
     SOURCE_INFO_PATTERN = re.compile(r'(.*)\s*->\s*(.*)\(\):\s*(\d+)')
@@ -312,6 +315,210 @@ class LogParser:
             True if parsing is active, False otherwise
         """
         return self._parsing_active
+
+    def parse_append(
+        self,
+        file_path: str,
+        start_position: int,
+        start_line_number: int,
+        max_lines: int = None
+    ) -> List[LogEntry]:
+        """
+        Parse only appended content from a log file (synchronous).
+
+        This method seeks to a specific byte position in the file and parses
+        only the new content that was appended since the last read.
+
+        Args:
+            file_path: Path to the log file
+            start_position: Byte position to start reading from
+            start_line_number: Line number (1-based) for the first new line
+            max_lines: Maximum number of lines to parse (default: MAX_APPEND_LINES)
+
+        Returns:
+            List of newly parsed LogEntry objects
+
+        Example:
+            >>> parser = LogParser()
+            >>> # After initial parse, file grew from 1000 bytes with 50 lines
+            >>> new_entries = parser.parse_append("test.log", 1000, 51)
+        """
+        if max_lines is None:
+            max_lines = self.MAX_APPEND_LINES
+
+        path = Path(file_path)
+
+        if not path.exists():
+            logger.warning(f"File not found for append parse: {file_path}")
+            return []
+
+        try:
+            logger.info(f"Parsing appended content from position {start_position}, "
+                       f"starting at line {start_line_number}, max_lines={max_lines}")
+
+            entries: List[LogEntry] = []
+            line_number = start_line_number
+            lines_read = 0
+
+            with path.open('r', encoding='utf-8') as f:
+                # Seek to the last known position
+                f.seek(start_position)
+
+                # Read and parse new lines (up to max_lines)
+                for line in f:
+                    if lines_read >= max_lines:
+                        logger.warning(f"Reached max_lines limit ({max_lines}) - stopping append parse")
+                        break
+
+                    line = line.rstrip('\n\r')
+                    entry = self._parse_line(line, line_number)
+                    if entry:
+                        entries.append(entry)
+                    line_number += 1
+                    lines_read += 1
+
+            logger.info(f"Parsed {len(entries)} new entries from appended content ({lines_read} lines read)")
+            return entries
+
+        except Exception as e:
+            logger.error(f"Error parsing appended content: {e}")
+            return []
+
+    def parse_append_async(
+        self,
+        file_path: str,
+        start_position: int,
+        start_line_number: int,
+        callback: Callable[[str, List[LogEntry]], None],
+        max_lines: int = None
+    ) -> None:
+        """
+        Parse only appended content from a log file (asynchronous).
+
+        Similar to parse_append() but runs in a background thread with progress callbacks.
+
+        Args:
+            file_path: Path to the log file
+            start_position: Byte position to start reading from
+            start_line_number: Line number (1-based) for the first new line
+            callback: Function called with (status_message, new_entries)
+            max_lines: Maximum number of lines to parse (default: MAX_APPEND_LINES)
+        """
+        if max_lines is None:
+            max_lines = self.MAX_APPEND_LINES
+
+        # Stop any existing parsing
+        self.stop_parsing()
+
+        # Start new parsing thread
+        self._parser_thread = threading.Thread(
+            target=self._parse_append_async_worker,
+            args=(file_path, start_position, start_line_number, callback, max_lines),
+            daemon=True
+        )
+        self._parser_thread.start()
+
+    def _parse_append_async_worker(
+        self,
+        file_path: str,
+        start_position: int,
+        start_line_number: int,
+        callback: Callable[[str, List[LogEntry]], None],
+        max_lines: int
+    ) -> None:
+        """
+        Worker function for asynchronous append parsing (runs in separate thread).
+
+        Args:
+            file_path: Path to the log file
+            start_position: Byte position to start reading from
+            start_line_number: Line number for first new line
+            callback: Progress callback function
+            max_lines: Maximum number of lines to parse
+        """
+        self._parsing_active = True
+        self._stop_requested.clear()
+
+        path = Path(file_path)
+
+        if not path.exists():
+            callback("Error: File not found", [])
+            self._parsing_active = False
+            return
+
+        try:
+            current_size = path.stat().st_size
+            bytes_to_read = current_size - start_position
+
+            logger.info(f"Starting async append parse: position={start_position}, "
+                       f"bytes={bytes_to_read}, start_line={start_line_number}, max_lines={max_lines}")
+
+            entries: List[LogEntry] = []
+            line_batch: List[str] = []
+            line_number = start_line_number
+            bytes_read = 0
+            lines_read = 0
+
+            callback("Parsing new entries... 0%", [])
+
+            with path.open('r', encoding='utf-8') as f:
+                # Seek to last known position
+                f.seek(start_position)
+
+                for line in f:
+                    if self._stop_requested.is_set():
+                        callback("Append parse cancelled", entries)
+                        self._parsing_active = False
+                        return
+
+                    # Check max lines limit
+                    if lines_read >= max_lines:
+                        logger.warning(f"Reached max_lines limit ({max_lines}) - stopping append parse")
+                        status = f"Partial: +{len(entries)} entries (max limit reached)"
+                        callback(status, entries)
+                        break
+
+                    line = line.rstrip('\n\r')
+                    line_batch.append(line)
+                    bytes_read += len(line.encode('utf-8')) + 1  # +1 for newline
+                    lines_read += 1
+
+                    # Process batch
+                    if len(line_batch) >= self.BATCH_SIZE:
+                        batch_entries = self._parse_batch(line_batch, line_number)
+                        entries.extend(batch_entries)
+                        line_number += len(line_batch)
+
+                        # Calculate progress
+                        progress = min(100, int((bytes_read * 100) / bytes_to_read)) if bytes_to_read > 0 else 100
+                        status = f"Parsing new entries... {progress}% (+{len(entries)} new)"
+                        callback(status, entries)
+
+                        line_batch.clear()
+                        threading.Event().wait(0.01)  # Small delay
+
+                # Process remaining lines
+                if line_batch and not self._stop_requested.is_set():
+                    batch_entries = self._parse_batch(line_batch, line_number)
+                    entries.extend(batch_entries)
+
+            if self._stop_requested.is_set():
+                callback("Append parse cancelled", entries)
+            elif lines_read >= max_lines:
+                status = f"Partial: +{len(entries)} entries (limit: {max_lines} lines)"
+                callback(status, entries)
+                logger.info(f"Append parse hit limit: {len(entries)} entries from {lines_read} lines")
+            else:
+                status = f"Complete: +{len(entries)} new entries"
+                callback(status, entries)
+                logger.info(f"Append parse complete: {len(entries)} new entries from {lines_read} lines")
+
+        except Exception as e:
+            logger.error(f"Error in async append parsing: {e}")
+            callback(f"Error: {str(e)}", [])
+
+        finally:
+            self._parsing_active = False
 
     def stop_parsing(self) -> None:
         """
