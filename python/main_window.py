@@ -257,7 +257,16 @@ class MainWindow(QMainWindow):
 
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("search term")
-        self._search_input.textChanged.connect(self._on_search_changed)
+        self._search_input.setMaxLength(50)  # Limit to 50 characters
+        self._search_input.setClearButtonEnabled(True)  # Native clear button (X)
+        self._search_input.returnPressed.connect(self._on_search_changed)  # Execute on Enter
+
+        # Add search button inside QLineEdit using QAction (modern Qt6 approach)
+        search_action = QAction("🔍", self._search_input)  # Unicode magnifying glass
+        search_action.setToolTip("Execute search (or press Enter)")
+        search_action.triggered.connect(self._on_search_changed)
+        self._search_input.addAction(search_action, QLineEdit.ActionPosition.TrailingPosition)
+
         search_row.addWidget(self._search_input, stretch=1)
 
         # Spacer
@@ -768,8 +777,8 @@ class MainWindow(QMainWindow):
         dialog = MessageDetailDialog(entry, self)
         dialog.exec()
 
-    def _on_search_changed(self, text: str):
-        """Handle search text change."""
+    def _on_search_changed(self):
+        """Handle search execution (Enter key or search button click)."""
         # Apply combined filters and search
         self._apply_filters()
 
