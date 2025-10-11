@@ -277,7 +277,8 @@ class MainWindow(QMainWindow):
         search_row.addWidget(file_label)
 
         self._file_filter_combo = QComboBox()
-        self._file_filter_combo.setMinimumWidth(200)
+        # Set fixed width to prevent resizing when long filenames are selected
+        self._file_filter_combo.setFixedWidth(250)
         self._file_filter_combo.addItem("All")
         self._file_filter_combo.currentTextChanged.connect(self._on_file_filter_changed)
         search_row.addWidget(self._file_filter_combo)
@@ -789,6 +790,8 @@ class MainWindow(QMainWindow):
 
     def _on_file_filter_changed(self, file_name: str):
         """Handle file filter dropdown selection change."""
+        # Update visual styling based on filter state
+        self._update_file_filter_style()
         # Apply combined filters and search
         self._apply_filters()
 
@@ -868,6 +871,25 @@ class MainWindow(QMainWindow):
         # Update tag counts in filter checkboxes
         self._update_tag_counts()
 
+    def _update_file_filter_style(self):
+        """Update file filter combo styling based on active state."""
+        if not self._file_filter_combo:
+            return
+
+        selected_file = self._file_filter_combo.currentText()
+        if selected_file != "All":
+            # Active filter - use orange text color to indicate filter is active
+            # This preserves the native dropdown styling while making it obvious
+            self._file_filter_combo.setStyleSheet("""
+                QComboBox {
+                    color: #FF8800;
+                    font-weight: bold;
+                }
+            """)
+        else:
+            # Inactive - reset to default
+            self._file_filter_combo.setStyleSheet("")
+
     def _populate_file_filter(self):
         """Populate the file filter dropdown with unique source files from loaded entries."""
         if not self._file_filter_combo:
@@ -900,6 +922,9 @@ class MainWindow(QMainWindow):
             self._file_filter_combo.setCurrentIndex(0)  # "All"
 
         self._file_filter_combo.blockSignals(False)
+
+        # Update visual styling after repopulation
+        self._update_file_filter_style()
 
         print(f"[FILE FILTER] Populated with {len(unique_files)} files")
 
