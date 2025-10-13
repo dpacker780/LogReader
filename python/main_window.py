@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QCheckBox, QFrame, QSizePolicy, QHeaderView, QMessageBox, QFileDialog, QApplication, QDialog, QComboBox
 )
 # QFrame already imported above
-from PyQt6.QtCore import Qt, QSize, QObject, pyqtSignal, QFileSystemWatcher, QTimer
+from PyQt6.QtCore import Qt, QSize, QObject, pyqtSignal, QFileSystemWatcher, QTimer, QStorageInfo
 from PyQt6.QtGui import QFont, QColor, QKeySequence, QShortcut, QAction
 
 from python.log_entry import LogLevel, LogEntry
@@ -126,6 +126,41 @@ class MainWindow(QMainWindow):
         # If last file exists, auto-load it
         if last_file and Path(last_file).exists():
             self._auto_load_last_file(last_file)
+
+    def _is_network_drive(self, file_path: str) -> bool:
+        """
+        Check if file is on a network drive using Qt's QStorageInfo (cross-platform).
+
+        Args:
+            file_path: Path to the file to check
+
+        Returns:
+            True if file is on a network drive, False otherwise
+        """
+        try:
+            storage = QStorageInfo(file_path)
+            if not storage.isValid():
+                return False  # Assume local if detection fails
+
+            # Get device and filesystem type as bytes, then decode
+            device_bytes = storage.device()
+            device = device_bytes.data().decode('utf-8', errors='ignore') if device_bytes else ""
+
+            fstype_bytes = storage.fileSystemType()
+            fs_type = fstype_bytes.data().decode('utf-8', errors='ignore') if fstype_bytes else ""
+
+            if sys.platform == 'win32':
+                # On Windows, local drives start with \\?\Volume
+                # Network drives have different patterns (UNC paths, mapped drives)
+                is_network = not device.startswith('\\\\?\\Volume')
+                return is_network
+            else:
+                # On Linux/macOS, check for network filesystem types
+                network_fs_types = ['nfs', 'nfs4', 'cifs', 'smb', 'smbfs', 'fuse.sshfs']
+                return fs_type.lower() in network_fs_types
+        except Exception as e:
+            print(f"[NETWORK CHECK] Detection failed: {e} - assuming local")
+            return False  # Assume local if detection fails
 
     def _setup_ui(self):
         """Create and layout all UI components."""
@@ -487,8 +522,6 @@ class MainWindow(QMainWindow):
             self._file_watcher.addPath(path)
             print(f"[FILE WATCHER] Re-added file to watch: {path}")
 
-        print(f"[FILE WATCHER] File changed: {path}")
-
         # If live mode is disabled, just show notification
         if not self._live_monitor.is_live_mode():
             self._show_file_change_notification()
@@ -496,15 +529,13 @@ class MainWindow(QMainWindow):
 
         # Check if parser is already running (prevent overlapping parses)
         if self._parser.is_parsing():
-            print(f"[FILE WATCHER] Parser already running - ignoring change")
-            return
+            return  # Silently ignore if parser is busy
 
         # Debounce: Store the path and start/restart timer
         # This delays processing until 1 second after the last change
         self._pending_file_change_path = path
         self._debounce_timer.stop()  # Cancel any pending timer
         self._debounce_timer.start(1000)  # Wait 1 second (1000ms)
-        print(f"[DEBOUNCE] Scheduled update in 1 second")
 
     def _process_pending_file_change(self):
         """
@@ -517,18 +548,16 @@ class MainWindow(QMainWindow):
         if not path:
             return
 
-        print(f"[DEBOUNCE] Processing delayed file change: {path}")
-
         # Double-check file still exists
         if not Path(path).exists():
-            print(f"[DEBOUNCE] File no longer exists: {path}")
+            print(f"[FILE WATCHER] File no longer exists: {path}")
             return
 
         # Detect change type
         change_type = self._live_monitor.detect_change_type(path)
 
         if change_type == ChangeType.NO_CHANGE:
-            print(f"[DEBOUNCE] No actual change detected (spurious notification)")
+            # Spurious notification - silently ignore
             return
 
         elif change_type == ChangeType.NEW_FILE:
@@ -1276,10 +1305,15 @@ class MainWindow(QMainWindow):
         if checked:
             self._update_status("🔄 Live update mode enabled")
             print("[LIVE MODE] Enabled - will auto-update on file changes")
-            # Start polling timer as backup
+
+            # Only start polling timer for network drives (backup for QFileSystemWatcher)
             if self._current_file_path:
-                self._poll_timer.start()
-                print("[POLL TIMER] Started (2s interval)")
+                is_network = self._is_network_drive(self._current_file_path)
+                if is_network:
+                    self._poll_timer.start()
+                    print("[POLL TIMER] Started (2s interval) - Network drive detected")
+                else:
+                    print("[POLL TIMER] Skipped - Local drive (QFileSystemWatcher sufficient)")
         else:
             self._update_status("Live update mode disabled")
             print("[LIVE MODE] Disabled - manual reload required (Ctrl+R)")
