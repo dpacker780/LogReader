@@ -254,3 +254,4 @@ logs/
 # Ignore large test files but keep small examples
 # test_input.log - KEEP (sample file)
 # helix.log - KEEP (sample file)
+/nul
