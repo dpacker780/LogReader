@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QCheckBox, QFrame, QSizePolicy, QHeaderView, QMessageBox, QFileDialog, QApplication, QDialog, QComboBox
 )
 # QFrame already imported above
-from PyQt6.QtCore import Qt, QSize, QObject, pyqtSignal, QFileSystemWatcher, QTimer, QStorageInfo
+from PyQt6.QtCore import Qt, QSize, QObject, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QColor, QKeySequence, QShortcut, QAction
 
 from python.log_entry import LogLevel, LogEntry
@@ -63,14 +63,12 @@ class MainWindow(QMainWindow):
         self._entries_lock = threading.Lock()
         self._current_file_path: str = ""  # Track currently loaded file
 
-        # File monitoring
-        self._file_watcher = QFileSystemWatcher()
-        self._file_watcher.fileChanged.connect(self._on_file_changed)
-
         # Live log monitoring
         self._live_monitor = LiveLogMonitor()
 
-        # Polling timer (backup for file watching on network drives)
+        # Polling timer - simple and reliable file change detection
+        # QFileSystemWatcher has too many quirks (inode tracking, platform differences)
+        # Polling is straightforward and works consistently
         self._poll_timer = QTimer()
         self._poll_timer.timeout.connect(self._on_poll_timer)
         self._poll_timer.setInterval(2000)  # Poll every 2 seconds
@@ -133,41 +131,6 @@ class MainWindow(QMainWindow):
         # If last file exists, auto-load it
         if last_file and Path(last_file).exists():
             self._auto_load_last_file(last_file)
-
-    def _is_network_drive(self, file_path: str) -> bool:
-        """
-        Check if file is on a network drive using Qt's QStorageInfo (cross-platform).
-
-        Args:
-            file_path: Path to the file to check
-
-        Returns:
-            True if file is on a network drive, False otherwise
-        """
-        try:
-            storage = QStorageInfo(file_path)
-            if not storage.isValid():
-                return False  # Assume local if detection fails
-
-            # Get device and filesystem type as bytes, then decode
-            device_bytes = storage.device()
-            device = device_bytes.data().decode('utf-8', errors='ignore') if device_bytes else ""
-
-            fstype_bytes = storage.fileSystemType()
-            fs_type = fstype_bytes.data().decode('utf-8', errors='ignore') if fstype_bytes else ""
-
-            if sys.platform == 'win32':
-                # On Windows, local drives start with \\?\Volume
-                # Network drives have different patterns (UNC paths, mapped drives)
-                is_network = not device.startswith('\\\\?\\Volume')
-                return is_network
-            else:
-                # On Linux/macOS, check for network filesystem types
-                network_fs_types = ['nfs', 'nfs4', 'cifs', 'smb', 'smbfs', 'fuse.sshfs']
-                return fs_type.lower() in network_fs_types
-        except Exception as e:
-            print(f"[NETWORK CHECK] Detection failed: {e} - assuming local")
-            return False  # Assume local if detection fails
 
     def _get_search_highlight_colors(self):
         """
@@ -510,13 +473,8 @@ class MainWindow(QMainWindow):
         # Update the file input field (still needed for reload functionality)
         self._file_input.setText(file_path)
 
-        # Remove old file from watcher (if any)
-        if self._current_file_path:
-            self._file_watcher.removePath(self._current_file_path)
-
-        # Add new file to watcher
+        # Track current file for polling
         self._current_file_path = file_path
-        self._file_watcher.addPath(file_path)
 
         # Clear file change notification (opening new file)
         self._clear_file_change_notification()
@@ -548,9 +506,8 @@ class MainWindow(QMainWindow):
         Args:
             file_path: Path to the file to load
         """
-        # Add to file watcher
+        # Track current file for polling
         self._current_file_path = file_path
-        self._file_watcher.addPath(file_path)
 
         # Update status bar file
         self._update_file_status(file_path)
@@ -594,42 +551,57 @@ class MainWindow(QMainWindow):
         # Switch focus to search input
         self._search_input.setFocus()
 
-    def _on_file_changed(self, path: str):
+    def _check_file_changes(self):
         """
-        Handle file change notification from QFileSystemWatcher.
+        Check if the current file has changed (polling-based).
 
-        Uses debouncing to prevent rapid-fire updates from freezing the UI.
-
-        Args:
-            path: Path to the file that changed
+        This is called by the poll timer and triggers debounced processing
+        if changes are detected.
         """
-        # Check if file still exists (might have been deleted)
-        if not Path(path).exists():
-            print(f"[FILE WATCHER] File deleted or moved: {path}")
-            # QFileSystemWatcher automatically removes deleted files from watch list
-            # No need to show notification for deleted files
+        # Only check if we have a file loaded
+        if not self._current_file_path:
             return
 
-        # Note: QFileSystemWatcher may stop watching after some editors save files
-        # (they delete and recreate). Re-add to watcher if needed.
-        if path not in self._file_watcher.files():
-            self._file_watcher.addPath(path)
-            print(f"[FILE WATCHER] Re-added file to watch: {path}")
+        file_path = self._current_file_path
+
+        # Check if file still exists
+        if not Path(file_path).exists():
+            # File deleted - don't log on every poll, just return
+            return
 
         # If live mode is disabled, just show notification
         if not self._live_monitor.is_live_mode():
-            self._show_file_change_notification()
+            # Check if file actually changed before showing notification
+            change_type = self._live_monitor.detect_change_type(file_path)
+            if change_type != ChangeType.NO_CHANGE:
+                self._show_file_change_notification()
             return
 
         # Check if parser is already running (prevent overlapping parses)
         if self._parser.is_parsing():
             return  # Silently ignore if parser is busy
 
-        # Debounce: Store the path and start/restart timer
-        # This delays processing until 1 second after the last change
-        self._pending_file_change_path = path
+        # Detect if file actually changed
+        change_type = self._live_monitor.detect_change_type(file_path)
+
+        if change_type == ChangeType.NO_CHANGE:
+            # No change detected - silently return (no logging)
+            return
+
+        # File changed - debounce before processing
+        self._pending_file_change_path = file_path
+
+        # Only log if this is a new change (timer wasn't already running)
+        was_active = self._debounce_timer.isActive()
         self._debounce_timer.stop()  # Cancel any pending timer
         self._debounce_timer.start(1000)  # Wait 1 second (1000ms)
+
+        if not was_active:
+            # Log the change type detected
+            if change_type == ChangeType.NEW_FILE:
+                print(f"[POLL] File replaced: {Path(file_path).name} - will reload in 1s")
+            elif change_type == ChangeType.APPEND:
+                print(f"[POLL] File modified: {Path(file_path).name} - will check in 1s")
 
     def _process_pending_file_change(self):
         """
@@ -1498,13 +1470,8 @@ class MainWindow(QMainWindow):
         # Simulate clicking Open with this file
         self._file_input.setText(file_path)
 
-        # Remove old file from watcher
-        if self._current_file_path:
-            self._file_watcher.removePath(self._current_file_path)
-
-        # Add new file to watcher
+        # Track current file for polling
         self._current_file_path = file_path
-        self._file_watcher.addPath(file_path)
 
         # Clear file change notification
         self._clear_file_change_notification()
@@ -1554,22 +1521,16 @@ class MainWindow(QMainWindow):
 
         if checked:
             self._update_status("🔄 Live update mode enabled")
-            print("[LIVE MODE] Enabled - will auto-update on file changes")
+            print("[LIVE MODE] Enabled - will poll for changes every 2 seconds")
 
-            # Only start polling timer for network drives (backup for QFileSystemWatcher)
-            if self._current_file_path:
-                is_network = self._is_network_drive(self._current_file_path)
-                if is_network:
-                    self._poll_timer.start()
-                    print("[POLL TIMER] Started (2s interval) - Network drive detected")
-                else:
-                    print("[POLL TIMER] Skipped - Local drive (QFileSystemWatcher sufficient)")
+            # Start polling timer
+            self._poll_timer.start()
         else:
             self._update_status("Live update mode disabled")
             print("[LIVE MODE] Disabled - manual reload required (Ctrl+R)")
+
             # Stop polling timer
             self._poll_timer.stop()
-            print("[POLL TIMER] Stopped")
 
         # Update status bar live indicator
         self._update_live_mode_indicator()
@@ -1734,22 +1695,12 @@ class MainWindow(QMainWindow):
 
     def _on_poll_timer(self):
         """
-        Polling timer handler (backup for file watching).
+        Polling timer handler - checks for file changes every 2 seconds.
 
-        This timer polls the file periodically to catch changes that
-        QFileSystemWatcher might miss (e.g., on network drives).
+        Simple and reliable - no QFileSystemWatcher quirks to worry about.
+        Only logs when actual changes are detected.
         """
-        # Only poll if live mode is active and we have a file loaded
-        if not self._live_monitor.is_live_mode() or not self._current_file_path:
-            return
-
-        # Check if parser is already running (avoid overlapping parses)
-        if self._parser.is_parsing():
-            return
-
-        # Simulate a file change event
-        # The _on_file_changed handler will detect if there's actually a change
-        self._on_file_changed(self._current_file_path)
+        self._check_file_changes()
 
     def closeEvent(self, event):
         """

@@ -229,6 +229,39 @@ self._current_match_color: str
 
 ---
 
+## v1.3.1 Patch - Polling-Based File Monitoring
+
+**Release Date**: January 2025
+
+### Changes
+
+**Replaced QFileSystemWatcher with simple polling** for live update mode:
+
+- **Why**: QFileSystemWatcher had too many quirks and platform-specific issues:
+  - Tracks inodes instead of paths (breaks on file delete/recreate)
+  - Different behavior on Windows vs. Linux/macOS
+  - Directory watching doesn't catch file modifications on Windows
+  - File watching breaks when apps restart and recreate log files
+  - Caused intermittent UI crashes when switching to live mode
+
+- **Solution**: Simple 2-second polling timer
+  - Polls only when live mode is enabled
+  - Uses existing `LiveLogMonitor.detect_change_type()` for change detection
+  - Only logs when actual changes are detected (no spam)
+  - Clean console output: `[POLL] File modified` or `[POLL] File replaced`
+  - More reliable and predictable across all platforms
+
+**Benefits**:
+- ✅ **Simpler**: No complex platform-specific code
+- ✅ **More Reliable**: Works consistently everywhere
+- ✅ **No Crashes**: Eliminated threading issues with QFileSystemWatcher
+- ✅ **Cleaner Logs**: Only logs meaningful events
+- ✅ **Predictable**: Same behavior on all platforms
+
+**Performance**: Negligible - polling every 2 seconds has no measurable impact on UI responsiveness.
+
+---
+
 ## Known Issues
 
 None reported at release time.

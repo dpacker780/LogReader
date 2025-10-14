@@ -82,7 +82,7 @@ LogReader is a cross-platform log file viewer with dynamic tag system, real-time
 - **🔔 File Change Notification**: Know when log file updates
   - Red status bar notification when file changes (manual mode)
   - Auto-reload with Live Update Mode enabled
-  - Monitors current file with QFileSystemWatcher
+  - Monitors current file with 2-second polling (v1.3.1+)
 
 - **🗂️ Separate Source Columns**: Better organization
   - File, Function, Line as separate columns
@@ -397,6 +397,14 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 ## Version History
+
+### v1.3.1 (Polling-Based File Monitoring Patch) - January 2025
+- **Replaced QFileSystemWatcher with simple polling** for live update mode
+- **More Reliable**: No more crashes or missed file changes
+- **Simpler**: 2-second polling timer instead of complex inode tracking
+- **Cleaner Logs**: Only logs actual file changes, not every poll cycle
+- **Cross-Platform**: Same behavior on all platforms (Windows, macOS, Linux)
+- **Bug Fix**: Eliminated intermittent UI crashes when switching to live mode
 
 ### v1.3 (Search Navigation & UX Improvements) - January 2025
 - **Search Navigation**: Search now navigates instead of filtering
