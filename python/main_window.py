@@ -294,6 +294,7 @@ class MainWindow(QMainWindow):
         self._search_input.setPlaceholderText("search term")
         self._search_input.setMaxLength(50)  # Limit to 50 characters
         self._search_input.setClearButtonEnabled(True)  # Native clear button (X)
+        self._search_input.textChanged.connect(self._on_search_text_changed)  # Trigger on clear
         self._search_input.returnPressed.connect(self._on_search_changed)  # Execute on Enter
 
         # Add search button inside QLineEdit using QAction (modern Qt6 approach)
@@ -374,7 +375,15 @@ class MainWindow(QMainWindow):
                 spacer = QLabel("  ")  # Two spaces for separation
                 self._filter_layout.addWidget(spacer)
 
+        # Add stretch to push "Reset All" button to the right
         self._filter_layout.addStretch()
+
+        # Add "Reset All" button (right-justified)
+        reset_button = QPushButton("Reset All")
+        reset_button.setMaximumWidth(80)
+        reset_button.setToolTip("Clear all filters, search, and jump to line")
+        reset_button.clicked.connect(self._on_reset_all_clicked)
+        self._filter_layout.addWidget(reset_button)
 
     def _rebuild_filter_ui(self):
         """Rebuild the filter UI after tags have been modified."""
@@ -812,6 +821,20 @@ class MainWindow(QMainWindow):
         # Apply combined filters and search
         self._apply_filters()
 
+    def _on_search_text_changed(self, text: str):
+        """
+        Handle search text change (only triggers when text becomes empty).
+
+        This avoids reintroducing "search while typing" behavior, but allows
+        the clear button (X) to immediately update the display.
+
+        Args:
+            text: The new text in the search box
+        """
+        # Only trigger filter update when text becomes empty (clear button clicked)
+        if not text.strip():
+            self._apply_filters()
+
     def _on_filter_changed(self, state: int):
         """Handle filter checkbox state change."""
         # Apply combined filters and search
@@ -1090,6 +1113,29 @@ class MainWindow(QMainWindow):
 
         # Reapply filters (which will show all entries)
         self._apply_filters()
+
+    def _on_reset_all_clicked(self):
+        """Handle Reset All button click - clears all filters, search, file filter, and jump to line."""
+        # Uncheck all level filter checkboxes
+        for checkbox in self._filter_checkboxes.values():
+            checkbox.setChecked(False)
+
+        # Clear search input
+        self._search_input.clear()
+
+        # Reset file filter to "All"
+        if self._file_filter_combo:
+            self._file_filter_combo.setCurrentIndex(0)  # Set to "All"
+
+        # Clear jump to line input
+        if self._jump_input:
+            self._jump_input.clear()
+
+        # Reapply filters (which will show all entries)
+        self._apply_filters()
+
+        self._update_status("All filters cleared")
+        print("[RESET ALL] Cleared all filters, search, file filter, and jump to line")
 
     def _update_status(self, message: str):
         """
