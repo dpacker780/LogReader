@@ -1,4 +1,4 @@
-# LogReader v1.2.1
+# LogReader v1.3
 
 
 ![LogReader UI Screenshot](https://github.com/dpacker780/LogReader/blob/master/logreader_UI.png)
@@ -22,7 +22,30 @@ LogReader is a cross-platform log file viewer with dynamic tag system, real-time
 - **Row Selection**: Select single or multiple rows with Ctrl+C to copy
 - **Keyboard Shortcuts**: Efficient workflow with Ctrl+O, Ctrl+R, Ctrl+C, Esc, Ctrl+Q
 
-### v1.2.1 New Features
+### v1.3 New Features
+- **🔍 Search Navigation**: Search now navigates instead of filtering (NEW!)
+  - All log entries remain visible (no context loss)
+  - Previous/Next buttons to navigate through matches
+  - Keyboard shortcuts: Ctrl+P (Previous), Ctrl+N (Next)
+  - Result counter: "Result X of Y"
+  - Theme-aware highlighting for all matches
+  - Active match uses Qt's native row selection
+  - Circular navigation (wraps from end to beginning)
+  - Perfect for exploring errors with full context
+
+- **🎨 Optimized UI Layout**: Two-section side-by-side design (NEW!)
+  - Section 1 (Left): Compact search & navigation (250-300px)
+  - Section 2 (Right): Filters & controls stretch to fill space
+  - Clean vertical separator (no distracting boxes)
+  - 20px taller for better breathing room (120px total)
+  - Tight spacing - no wasted horizontal space
+  - Intuitive grouping of related controls
+
+- **🖱️ Double-Click Behavior**: Now opens message detail dialog (CHANGED!)
+  - Same as Ctrl+M - view full message text
+  - No longer clears filters (use Reset All button instead)
+
+### v1.2.1 Features
 - **🔄 Live Update Mode**: Real-time log monitoring (NEW!)
   - Toggle: `Options → Live Update Mode`
   - Status indicator: `🔄 Live` (green) or `⏸ Manual` (gray)
@@ -173,10 +196,12 @@ python python/main.py
 | **Copy selected rows** | Ctrl+C |
 | **Show message details** | Ctrl+M |
 | **Select all visible** | Ctrl+A |
+| **Next search result** | Ctrl+N |
+| **Previous search result** | Ctrl+P |
 | **Clear search** | Esc |
 | **Jump to line** | Enter (in Jump field) |
 | **Quit application** | Ctrl+Q |
-| **Show context** | Double-click entry |
+| **Show message details** | Double-click entry |
 | **View long messages** | Hover over Message column |
 
 #### Live Update Mode (v1.2.1)
@@ -341,14 +366,17 @@ Auto-discovered unknown tags appear in gray
 
 ## Roadmap
 
-### Future Enhancements (v1.3+)
+### Future Enhancements (v1.4+)
 
+- Regex search patterns for advanced matching
+- Multi-field search (search across timestamp, level, source, etc.)
+- Search history dropdown
 - Configurable live update settings (debounce delay, max lines)
 - Progressive loading for large appends (queue-based)
 - Function name filtering (dropdown like file filter)
 - Tag Icons (in addition to colors)
-- Bookmarks for important lines (Navigate (N)ext / (P)revious)
-- Export filtered results
+- Bookmarks for important lines
+- Export filtered results and search results
 - Custom column ordering and widths
 - Configurable log format (user-defined field mappings)
 - Log level statistics panel
@@ -369,6 +397,17 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 ## Version History
+
+### v1.3 (Search Navigation & UX Improvements) - January 2025
+- **Search Navigation**: Search now navigates instead of filtering
+- **Context Preservation**: All log entries remain visible when searching
+- **Previous/Next Navigation**: Buttons and keyboard shortcuts (Ctrl+P, Ctrl+N)
+- **Result Counter**: Shows "Result X of Y" for search matches
+- **Theme-Aware Highlighting**: Automatic color adjustment for dark/light themes
+- **Optimized UI Layout**: Two-section side-by-side design with compact search section
+- **Double-Click Change**: Now opens message detail dialog (was "clear filters")
+- **Circular Navigation**: Search results wrap from end to beginning
+- **Documentation**: RELEASE_v1.3.md with comprehensive technical details
 
 ### v1.2.1 (Live Update Mode) - January 2025
 - **Live Update Mode**: Real-time log monitoring with auto-reload
@@ -418,6 +457,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Documentation
 
+- **[RELEASE_v1.3.md](RELEASE_v1.3.md)** - Detailed v1.3 release notes (Search Navigation)
 - **[LIVE_UPDATE_FEATURE.md](LIVE_UPDATE_FEATURE.md)** - Live update implementation guide
 - **[LIVE_UPDATE_FIXES.md](LIVE_UPDATE_FIXES.md)** - Performance fixes and optimization
 - **[RELEASE_v1.2.md](RELEASE_v1.2.md)** - Detailed v1.2 release notes

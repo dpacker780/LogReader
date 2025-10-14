@@ -64,6 +64,12 @@ class LogTableModel(QAbstractTableModel):
         # Indices of entries to display (after filtering/searching)
         self._filtered_indices: List[int] = []
 
+        # Search highlighting
+        self._search_highlight_rows: List[int] = []  # Row indices to highlight
+        self._current_search_row: int = -1  # Current search result row
+        self._all_matches_color: str = ""  # Color for all matches
+        self._current_match_color: str = ""  # Color for current match
+
     def set_entries(self, entries: List[LogEntry]):
         """
         Set the log entries to display.
@@ -213,6 +219,16 @@ class LogTableModel(QAbstractTableModel):
                 message = entry.message.replace('<', '&lt;').replace('>', '&gt;')  # Escape HTML
                 return f'<div style="max-width: 900px; white-space: pre-wrap;">{message}</div>'
 
+        # BackgroundRole: Highlight search results
+        elif role == Qt.ItemDataRole.BackgroundRole:
+            if row in self._search_highlight_rows:
+                if row == self._current_search_row:
+                    # Current search result - use brighter highlight
+                    return QBrush(QColor(self._current_match_color)) if self._current_match_color else QVariant()
+                else:
+                    # Other search results - use subtle highlight
+                    return QBrush(QColor(self._all_matches_color)) if self._all_matches_color else QVariant()
+
         return QVariant()
 
     def headerData(
@@ -263,3 +279,41 @@ class LogTableModel(QAbstractTableModel):
         self._entries.clear()
         self._filtered_indices.clear()
         self.endResetModel()
+
+    def set_search_highlights(self, highlight_rows: List[int], current_row: int,
+                              all_matches_color: str, current_match_color: str):
+        """
+        Set search result highlighting.
+
+        Args:
+            highlight_rows: List of row indices to highlight (in filtered view)
+            current_row: Row index of current search result (-1 for none)
+            all_matches_color: Hex color for all search matches
+            current_match_color: Hex color for current search match
+        """
+        self._search_highlight_rows = highlight_rows
+        self._current_search_row = current_row
+        self._all_matches_color = all_matches_color
+        self._current_match_color = current_match_color
+
+        # Refresh the view to show highlights
+        if self._search_highlight_rows:
+            self.dataChanged.emit(
+                self.index(0, 0),
+                self.index(len(self._filtered_indices) - 1, len(self.HEADERS) - 1)
+            )
+
+    def clear_search_highlights(self):
+        """Clear all search result highlighting."""
+        if self._search_highlight_rows:  # Only emit if there were highlights
+            self._search_highlight_rows.clear()
+            self._current_search_row = -1
+            self._all_matches_color = ""
+            self._current_match_color = ""
+
+            # Refresh the view to remove highlights
+            if len(self._filtered_indices) > 0:
+                self.dataChanged.emit(
+                    self.index(0, 0),
+                    self.index(len(self._filtered_indices) - 1, len(self.HEADERS) - 1)
+                )

@@ -100,6 +100,13 @@ class MainWindow(QMainWindow):
         self._filter_count_labels: Dict[str, QLabel] = {}  # tag_name -> count label
         self._filter_layout: QHBoxLayout = None  # Store reference to filter row layout
 
+        # Search navigation state (v1.3 - navigation instead of filtering)
+        self._search_result_indices: List[int] = []  # Indices into filtered view
+        self._current_search_index: int = -1  # Current position in search results
+        self._search_prev_button: QPushButton = None
+        self._search_next_button: QPushButton = None
+        self._search_counter_label: QLabel = None
+
         # Status bar widgets
         self._status_message: QLabel = None
         self._status_file: QLabel = None
@@ -161,6 +168,24 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"[NETWORK CHECK] Detection failed: {e} - assuming local")
             return False  # Assume local if detection fails
+
+    def _get_search_highlight_colors(self):
+        """
+        Get appropriate highlight colors based on current theme.
+
+        Returns:
+            Tuple of (all_matches_color, current_match_color) as hex strings
+        """
+        palette = self.palette()
+        base_color = palette.color(palette.ColorRole.Base)
+        is_dark = base_color.lightness() < 128
+
+        if is_dark:
+            # Dark theme: dark blue tints (more saturated for visibility)
+            return "#2A4A6A", "#3A5A8A"
+        else:
+            # Light theme: light blue tints (softer for light backgrounds)
+            return "#D0E8FF", "#B0D0FF"
 
     def _setup_ui(self):
         """Create and layout all UI components."""
@@ -272,78 +297,145 @@ class MainWindow(QMainWindow):
         """
         Create the bottom pane with search and filter controls.
 
+        v1.3: Reorganized into two side-by-side sections:
+        - Section 1 (Left): Search & Navigation
+        - Section 2 (Right): Filters & Controls
+
         Returns:
             QFrame containing search input and level filter checkboxes
         """
         frame = QFrame()
         frame.setFrameStyle(QFrame.Shape.StyledPanel | QFrame.Shadow.Raised)
-        frame.setMaximumHeight(100)
+        frame.setMaximumHeight(120)  # Increased by 20 pixels for more breathing room
 
-        layout = QVBoxLayout(frame)
+        # Main horizontal layout for side-by-side sections
+        layout = QHBoxLayout(frame)
         layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(5)
+        layout.setSpacing(10)  # Space before separator
 
-        # First row: Search input and Jump to Line
-        search_row = QHBoxLayout()
+        # === SECTION 1: SEARCH & NAVIGATION ===
+        search_section = QFrame()
+        # No frame style - clean look
+        search_section_layout = QVBoxLayout(search_section)
+        search_section_layout.setContentsMargins(5, 5, 5, 5)
+        search_section_layout.setSpacing(3)
 
+        # Row 1: Search input
+        search_input_row = QHBoxLayout()
         search_label = QLabel("Search:")
-        search_label.setMinimumWidth(60)
-        search_row.addWidget(search_label)
+        search_input_row.addWidget(search_label)
 
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("search term")
-        self._search_input.setMaxLength(50)  # Limit to 50 characters
-        self._search_input.setClearButtonEnabled(True)  # Native clear button (X)
-        self._search_input.textChanged.connect(self._on_search_text_changed)  # Trigger on clear
-        self._search_input.returnPressed.connect(self._on_search_changed)  # Execute on Enter
+        self._search_input.setMaxLength(50)
+        self._search_input.setClearButtonEnabled(True)
+        self._search_input.textChanged.connect(self._on_search_text_changed)
+        self._search_input.returnPressed.connect(self._on_search_changed)
 
-        # Add search button inside QLineEdit using QAction (modern Qt6 approach)
-        search_action = QAction("🔍", self._search_input)  # Unicode magnifying glass
+        # Add search button inside QLineEdit
+        search_action = QAction("🔍", self._search_input)
         search_action.setToolTip("Execute search (or press Enter)")
         search_action.triggered.connect(self._on_search_changed)
         self._search_input.addAction(search_action, QLineEdit.ActionPosition.TrailingPosition)
 
-        search_row.addWidget(self._search_input, stretch=1)
+        search_input_row.addWidget(self._search_input, stretch=1)
+        search_section_layout.addLayout(search_input_row)
 
-        # Spacer
-        search_row.addSpacing(20)
+        # Row 2: Navigation controls (directly below search)
+        nav_row = QHBoxLayout()
+
+        # Previous button
+        self._search_prev_button = QPushButton("◀ Prev")
+        self._search_prev_button.setMaximumWidth(70)
+        self._search_prev_button.setEnabled(False)
+        self._search_prev_button.setToolTip("Previous search result (Ctrl+P)")
+        self._search_prev_button.clicked.connect(self._on_search_prev)
+        nav_row.addWidget(self._search_prev_button)
+
+        # Next button
+        self._search_next_button = QPushButton("Next ▶")
+        self._search_next_button.setMaximumWidth(70)
+        self._search_next_button.setEnabled(False)
+        self._search_next_button.setToolTip("Next search result (Ctrl+N)")
+        self._search_next_button.clicked.connect(self._on_search_next)
+        nav_row.addWidget(self._search_next_button)
+
+        # Result counter
+        self._search_counter_label = QLabel("")
+        self._search_counter_label.setMinimumWidth(100)
+        self._search_counter_label.setStyleSheet("QLabel { color: #90EE90; }")
+        nav_row.addWidget(self._search_counter_label)
+
+        nav_row.addStretch()  # Push everything to the left
+        search_section_layout.addLayout(nav_row)
+
+        # Add Section 1 to main layout (compact width)
+        search_section.setMinimumWidth(250)
+        search_section.setMaximumWidth(300)
+        layout.addWidget(search_section, stretch=0)  # No stretch - keep compact
+
+        # Add vertical separator between sections
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.VLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(separator)
+
+        # === SECTION 2: FILTERS & CONTROLS ===
+        filter_section = QFrame()
+        # No frame style - clean look
+        filter_section_layout = QVBoxLayout(filter_section)
+        filter_section_layout.setContentsMargins(5, 5, 5, 5)
+        filter_section_layout.setSpacing(3)
+
+        # Row 1: File filter, Jump to Line, Reset All
+        controls_row = QHBoxLayout()
 
         # File filter dropdown
         file_label = QLabel("File:")
-        search_row.addWidget(file_label)
+        controls_row.addWidget(file_label)
 
         self._file_filter_combo = QComboBox()
-        # Set fixed width to prevent resizing when long filenames are selected
         self._file_filter_combo.setFixedWidth(250)
         self._file_filter_combo.addItem("All")
         self._file_filter_combo.currentTextChanged.connect(self._on_file_filter_changed)
-        search_row.addWidget(self._file_filter_combo)
+        controls_row.addWidget(self._file_filter_combo)
 
-        # Spacer
-        search_row.addSpacing(20)
+        controls_row.addSpacing(20)
 
         # Jump to Line controls
         jump_label = QLabel("Jump to Line:")
-        search_row.addWidget(jump_label)
+        controls_row.addWidget(jump_label)
 
         self._jump_input = QLineEdit()
         self._jump_input.setPlaceholderText("#")
         self._jump_input.setMaximumWidth(80)
         self._jump_input.returnPressed.connect(self._on_jump_clicked)
-        search_row.addWidget(self._jump_input)
+        controls_row.addWidget(self._jump_input)
 
         self._jump_button = QPushButton("Go")
         self._jump_button.setMaximumWidth(50)
         self._jump_button.clicked.connect(self._on_jump_clicked)
-        search_row.addWidget(self._jump_button)
+        controls_row.addWidget(self._jump_button)
 
-        layout.addLayout(search_row)
+        controls_row.addStretch()
 
-        # Second row: Filter checkboxes
+        # Reset All button
+        reset_button = QPushButton("Reset All")
+        reset_button.setMaximumWidth(80)
+        reset_button.setToolTip("Clear all filters, search, and jump to line")
+        reset_button.clicked.connect(self._on_reset_all_clicked)
+        controls_row.addWidget(reset_button)
+
+        filter_section_layout.addLayout(controls_row)
+
+        # Row 2: Filter checkboxes
         self._filter_layout = QHBoxLayout()
-        self._filter_layout.setSpacing(0)  # Remove spacing between widgets for tight count labels
+        self._filter_layout.setSpacing(0)
         self._build_filter_ui()
-        layout.addLayout(self._filter_layout)
+        filter_section_layout.addLayout(self._filter_layout)
+
+        # Add Section 2 to main layout (side-by-side, stretches to fill remaining space)
+        layout.addWidget(filter_section, stretch=1)
 
         return frame
 
@@ -375,15 +467,8 @@ class MainWindow(QMainWindow):
                 spacer = QLabel("  ")  # Two spaces for separation
                 self._filter_layout.addWidget(spacer)
 
-        # Add stretch to push "Reset All" button to the right
+        # Add stretch to fill remaining space (Reset All button moved to navigation section)
         self._filter_layout.addStretch()
-
-        # Add "Reset All" button (right-justified)
-        reset_button = QPushButton("Reset All")
-        reset_button.setMaximumWidth(80)
-        reset_button.setToolTip("Clear all filters, search, and jump to line")
-        reset_button.clicked.connect(self._on_reset_all_clicked)
-        self._filter_layout.addWidget(reset_button)
 
     def _rebuild_filter_ui(self):
         """Rebuild the filter UI after tags have been modified."""
@@ -753,6 +838,15 @@ class MainWindow(QMainWindow):
         esc_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
         esc_shortcut.activated.connect(self._clear_search)
 
+        # v1.3: Search navigation shortcuts
+        # Ctrl+N: Next search result
+        next_shortcut = QShortcut(QKeySequence("Ctrl+N"), self)
+        next_shortcut.activated.connect(self._on_search_next)
+
+        # Ctrl+P: Previous search result
+        prev_shortcut = QShortcut(QKeySequence("Ctrl+P"), self)
+        prev_shortcut.activated.connect(self._on_search_prev)
+
     def _copy_selected_rows(self):
         """Copy selected table rows to clipboard."""
         from PyQt6.QtWidgets import QApplication
@@ -851,10 +945,15 @@ class MainWindow(QMainWindow):
         """
         Apply level filters, file filter, and search to log entries.
 
+        v1.3 Change: Search now performs navigation instead of filtering.
+        - Level and file filters still filter entries
+        - Search finds matches within filtered entries and highlights them
+        - Use Previous/Next buttons or Ctrl+P/Ctrl+N to navigate results
+
         This method filters the log entries based on:
         1. Level filters (checkboxes) - OR logic
         2. File filter (dropdown) - AND logic
-        3. Search text (substring match) - AND logic with filters
+        3. Search text - NAVIGATION (not filtering)
 
         Updates the table model with filtered indices for efficient display.
         """
@@ -875,7 +974,7 @@ class MainWindow(QMainWindow):
         # If no filters checked, show all entries
         any_filter_active = len(active_filters) > 0
 
-        # Filter entries
+        # Filter entries (NOT including search - v1.3 change)
         filtered_indices = []
 
         # Thread-safe access to entries
@@ -891,12 +990,7 @@ class MainWindow(QMainWindow):
                     if entry.source_file != selected_file:
                         continue  # Skip this entry
 
-                # Apply search filter (AND logic - must also pass level filter and file filter)
-                if search_term:
-                    if search_term not in entry.message.lower():
-                        continue  # Skip this entry
-
-                # Entry passed all filters
+                # Entry passed all filters (search NOT applied here)
                 filtered_indices.append(i)
 
         # Update table model with filtered indices
@@ -907,6 +1001,13 @@ class MainWindow(QMainWindow):
         shown = len(filtered_indices)
         self._update_entry_count(shown, total)
 
+        # v1.3: Perform search navigation (find matches within filtered view)
+        if search_term:
+            self._perform_search_navigation(search_term, filtered_indices)
+        else:
+            # No search term - clear search highlighting
+            self._clear_search_navigation()
+
         # Log filter status
         filter_desc = []
         if active_filters:
@@ -915,13 +1016,124 @@ class MainWindow(QMainWindow):
         if file_filter_active:
             filter_desc.append(f"File: '{selected_file}'")
         if search_term:
-            filter_desc.append(f"Search: '{search_term}'")
+            filter_desc.append(f"Search: '{search_term}' (navigation mode)")
 
         if filter_desc:
             print(f"[FILTER] {' | '.join(filter_desc)} => {shown}/{total} entries")
 
         # Update tag counts in filter checkboxes
         self._update_tag_counts()
+
+    def _perform_search_navigation(self, search_term: str, filtered_indices: List[int]):
+        """
+        Perform search navigation - find matches and highlight them (v1.3).
+
+        Args:
+            search_term: Search term (already lowercase)
+            filtered_indices: List of indices in the filtered view
+        """
+        # Find all matching rows in the filtered view
+        search_matches = []
+        with self._entries_lock:
+            for row_index, entry_index in enumerate(filtered_indices):
+                if entry_index < len(self._log_entries):
+                    entry = self._log_entries[entry_index]
+                    if search_term in entry.message.lower():
+                        search_matches.append(row_index)
+
+        # Update search state
+        self._search_result_indices = search_matches
+        match_count = len(search_matches)
+
+        if match_count > 0:
+            # Jump to first result
+            self._current_search_index = 0
+            current_row = search_matches[0]
+
+            # Get theme-aware colors (only one color needed now - all matches use same highlight)
+            all_color, _ = self._get_search_highlight_colors()
+
+            # Apply highlighting to table model (all matches, no "current" distinction)
+            self._log_model.set_search_highlights(
+                search_matches,
+                -1,  # No special "current" row highlighting
+                all_color,
+                ""   # No current match color
+            )
+
+            # Select and scroll to first result
+            self._log_table.selectRow(current_row)
+            model_index = self._log_model.index(current_row, 0)
+            self._log_table.scrollTo(model_index, QTableView.ScrollHint.PositionAtCenter)
+
+            # Update UI
+            self._search_counter_label.setText(f"Result 1 of {match_count}")
+            self._search_prev_button.setEnabled(match_count > 1)
+            self._search_next_button.setEnabled(match_count > 1)
+
+            # Update status
+            self._update_status(f"Found {match_count} matches for '{search_term}'")
+            print(f"[SEARCH] Found {match_count} matches, jumped to first result")
+        else:
+            # No matches found
+            self._current_search_index = -1
+            self._log_model.clear_search_highlights()
+            self._search_counter_label.setText("No results")
+            self._search_prev_button.setEnabled(False)
+            self._search_next_button.setEnabled(False)
+            self._update_status(f"No matches found for '{search_term}'")
+            print(f"[SEARCH] No matches found for '{search_term}'")
+
+    def _clear_search_navigation(self):
+        """Clear search navigation state and highlighting (v1.3)."""
+        self._search_result_indices.clear()
+        self._current_search_index = -1
+        self._log_model.clear_search_highlights()
+        self._search_counter_label.setText("")
+        self._search_prev_button.setEnabled(False)
+        self._search_next_button.setEnabled(False)
+
+    def _on_search_prev(self):
+        """Navigate to previous search result (v1.3)."""
+        if not self._search_result_indices or self._current_search_index < 0:
+            return
+
+        # Circular navigation: wrap to end if at beginning
+        self._current_search_index = (self._current_search_index - 1) % len(self._search_result_indices)
+        current_row = self._search_result_indices[self._current_search_index]
+
+        # Select and scroll to result
+        self._log_table.selectRow(current_row)
+        model_index = self._log_model.index(current_row, 0)
+        self._log_table.scrollTo(model_index, QTableView.ScrollHint.PositionAtCenter)
+
+        # Update counter
+        self._search_counter_label.setText(
+            f"Result {self._current_search_index + 1} of {len(self._search_result_indices)}"
+        )
+
+        print(f"[SEARCH] Previous result: {self._current_search_index + 1}/{len(self._search_result_indices)}")
+
+    def _on_search_next(self):
+        """Navigate to next search result (v1.3)."""
+        if not self._search_result_indices or self._current_search_index < 0:
+            return
+
+        # Circular navigation: wrap to beginning if at end
+        self._current_search_index = (self._current_search_index + 1) % len(self._search_result_indices)
+        current_row = self._search_result_indices[self._current_search_index]
+
+        # Select and scroll to result
+        self._log_table.selectRow(current_row)
+        model_index = self._log_model.index(current_row, 0)
+        self._log_table.scrollTo(model_index, QTableView.ScrollHint.PositionAtCenter)
+
+        # Update counter
+        self._search_counter_label.setText(
+            f"Result {self._current_search_index + 1} of {len(self._search_result_indices)}"
+        )
+
+        print(f"[SEARCH] Next result: {self._current_search_index + 1}/{len(self._search_result_indices)}")
 
     def _update_file_filter_style(self):
         """Update file filter combo styling based on active state."""
@@ -1066,10 +1278,10 @@ class MainWindow(QMainWindow):
 
     def _on_table_double_click(self, index):
         """
-        Handle double-click on log table.
+        Handle double-click on log table (v1.3).
 
-        Clears all filters and search, then navigates to the line number
-        of the double-clicked entry to show surrounding context.
+        Shows message detail dialog (equivalent to Ctrl+M).
+        This replaces the old behavior of clearing filters.
 
         Args:
             index: QModelIndex of the clicked cell
@@ -1083,24 +1295,13 @@ class MainWindow(QMainWindow):
         if entry is None:
             return
 
-        line_number = entry.line_number
+        # Show message details dialog (same as Ctrl+M)
+        from python.message_detail_dialog import MessageDetailDialog
 
-        # Clear all filters and search
-        self._clear_all_filters()
+        dialog = MessageDetailDialog(entry, self)
+        dialog.exec()
 
-        # Find the entry with this line number in the now-unfiltered list
-        # and scroll to it
-        with self._entries_lock:
-            for i, e in enumerate(self._log_entries):
-                if e.line_number == line_number:
-                    # Select and scroll to this row
-                    self._log_table.selectRow(i)
-                    model_index = self._log_model.index(i, 0)
-                    self._log_table.scrollTo(model_index, QTableView.ScrollHint.PositionAtCenter)
-
-                    self._update_status(f"Cleared filters, showing context for line {line_number}")
-                    print(f"[DOUBLE-CLICK] Cleared filters, jumped to line {line_number}")
-                    break
+        print(f"[DOUBLE-CLICK] Opened message detail dialog for line {entry.line_number}")
 
     def _clear_all_filters(self):
         """Clear all filters and search to show all entries."""
@@ -1115,7 +1316,7 @@ class MainWindow(QMainWindow):
         self._apply_filters()
 
     def _on_reset_all_clicked(self):
-        """Handle Reset All button click - clears all filters, search, file filter, and jump to line."""
+        """Handle Reset All button click - clears all filters, search, file filter, and jump to line (v1.3)."""
         # Uncheck all level filter checkboxes
         for checkbox in self._filter_checkboxes.values():
             checkbox.setChecked(False)
@@ -1131,11 +1332,14 @@ class MainWindow(QMainWindow):
         if self._jump_input:
             self._jump_input.clear()
 
-        # Reapply filters (which will show all entries)
+        # v1.3: Clear search navigation state
+        self._clear_search_navigation()
+
+        # Reapply filters (which will show all entries and clear highlighting)
         self._apply_filters()
 
-        self._update_status("All filters cleared")
-        print("[RESET ALL] Cleared all filters, search, file filter, and jump to line")
+        self._update_status("All filters and search cleared")
+        print("[RESET ALL] Cleared all filters, search, file filter, jump to line, and search navigation")
 
     def _update_status(self, message: str):
         """
@@ -1399,6 +1603,8 @@ class MainWindow(QMainWindow):
         <tr><td><b>Ctrl+R</b></td><td>Reload current log file</td></tr>
         <tr><td><b>Ctrl+C</b></td><td>Copy selected rows to clipboard</td></tr>
         <tr><td><b>Ctrl+M</b></td><td>Show full message details for selected row</td></tr>
+        <tr><td><b>Ctrl+N</b></td><td>Next search result</td></tr>
+        <tr><td><b>Ctrl+P</b></td><td>Previous search result</td></tr>
         <tr><td><b>Ctrl+A</b></td><td>Select all visible rows</td></tr>
         <tr><td><b>Esc</b></td><td>Clear search input</td></tr>
         <tr><td><b>Ctrl+Q</b></td><td>Quit application</td></tr>
@@ -1409,11 +1615,11 @@ class MainWindow(QMainWindow):
         <tr><td><b>Click</b></td><td>Select single row</td></tr>
         <tr><td><b>Ctrl+Click</b></td><td>Add/remove row from selection</td></tr>
         <tr><td><b>Shift+Click</b></td><td>Select range of rows</td></tr>
-        <tr><td><b>Double-Click</b></td><td>Clear filters/search and show context around clicked line</td></tr>
+        <tr><td><b>Double-Click</b></td><td>Show message details dialog</td></tr>
         <tr><td><b>Hover</b></td><td>Show full message text as tooltip (Message column only)</td></tr>
         </table>
 
-        <p><i>Tip: Hover over long messages to see the full text, or press Ctrl+M for a detailed view with copy functionality!</i></p>
+        <p><i>Tip: Use search to find matches, then navigate with Prev/Next buttons or Ctrl+P/Ctrl+N!</i></p>
         """
 
         msg.setText(help_text)
@@ -1428,7 +1634,7 @@ class MainWindow(QMainWindow):
 
         about_text = """
         <h2>LogReader</h2>
-        <p><b>Version:</b> 1.1</p>
+        <p><b>Version:</b> 1.3</p>
         <p><b>License:</b> MIT License</p>
 
         <p>A modern, professional GUI log viewer built with Python and PyQt6.</p>
@@ -1437,7 +1643,8 @@ class MainWindow(QMainWindow):
         <ul>
         <li>Native file dialog with directory memory</li>
         <li>Line numbers and jump to line navigation</li>
-        <li>Real-time filtering and instant search</li>
+        <li>Real-time filtering with search navigation</li>
+        <li>Theme-aware search highlighting</li>
         <li>Async parsing with progress updates</li>
         <li>Color-coded log levels</li>
         <li>Multi-row selection and copy</li>
